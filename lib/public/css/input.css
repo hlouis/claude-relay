@@ -272,6 +272,13 @@
   padding: 8px 16px calc(var(--safe-bottom) + 8px);
 }
 
+/* iPadOS external keyboard: we block the system's viewport push via
+   position:fixed + visualViewport scroll reset, so we must manually
+   add padding to lift the input area above the Shortcuts Bar (~55px). */
+.ipad-extkey #input-area {
+  padding-bottom: calc(var(--safe-bottom) + 55px + 8px);
+}
+
 #input-wrapper {
   max-width: var(--content-width);
   margin: 0 auto;
@@ -379,6 +386,7 @@
 #send-btn .lucide {
   width: 18px;
   height: 18px;
+  pointer-events: none;
 }
 
 #send-btn:hover:not(:disabled) {

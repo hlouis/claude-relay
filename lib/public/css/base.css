@@ -177,6 +177,15 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* iPadOS: prevent system viewport offset when input gets focus
+   (Shortcuts Bar appearance causes iOS to push the entire page up).
+   position:fixed blocks that system-level scroll. Only on touch devices
+   to avoid affecting desktop. */
+.touch-device, .touch-device body {
+  position: fixed;
+  width: 100%;
+}
+
 /* --- Lucide icons --- */
 .lucide {
   vertical-align: middle;
