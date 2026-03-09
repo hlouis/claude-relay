@@ -673,6 +673,7 @@
         <div class="server-settings-nav-items">
           <div class="settings-nav-category">General</div>
           <button class="settings-nav-item active" data-section="overview"><span>Status</span></button>
+          <button class="settings-nav-item" data-section="appearance"><span>Appearance</span></button>
           <button class="settings-nav-item" data-section="notifications"><span>Notifications</span></button>
           <button class="settings-nav-item" data-section="security"><span>Security</span></button>
           <div class="settings-nav-separator"></div>
@@ -771,6 +772,13 @@
               <label class="settings-label">Project Slug</label>
               <span class="settings-value settings-mono" id="settings-project-slug">-</span>
             </div>
+          </div>
+        </div>
+        <div class="server-settings-section" data-section="appearance">
+          <h2>Appearance</h2>
+          <p class="settings-hint" style="margin-bottom: 20px;">Choose a color theme for the interface.</p>
+          <div class="settings-card">
+            <div id="settings-theme-picker-container"></div>
           </div>
         </div>
         <div class="server-settings-section" data-section="models">

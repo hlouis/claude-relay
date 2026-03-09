@@ -1203,6 +1203,25 @@
   opacity: 1;
 }
 
+/* Theme picker embedded in server settings — override floating popover styles */
+#settings-theme-picker-container .theme-picker {
+  position: static;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  box-shadow: none;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  max-height: none;
+  min-width: 0;
+  width: 100%;
+}
+
+#settings-theme-picker-container .theme-picker-header {
+  background: transparent;
+}
+
 /* --- Sidebar resize handle (overlay, no layout space) --- */
 #sidebar-resize-handle {
   position: absolute;
