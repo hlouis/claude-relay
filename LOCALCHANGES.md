@@ -26,19 +26,7 @@
 
 ---
 
-## 3. Session 右键菜单 z-index 被遮挡
-
-**问题**：Session 列表中右键菜单可能被相邻的 session item 遮挡。
-
-**实现要求**：
-- 在 `lib/public/css/sidebar.css` 中为 `.session-item.ctx-menu-open` 添加 `z-index: 200`
-- 在 `lib/public/modules/sidebar.js` 的菜单打开逻辑中，给 anchor 的父元素加 `.ctx-menu-open` class；在 `closeSessionCtxMenu` 中移除该 class
-
-> **注意**：upstream 已将菜单改为 `document.body.appendChild` + fixed positioning，此修复可能已不再必要，同步后先验证是否仍存在问题再决定是否实现。
-
----
-
-## 4. iOS PWA 键盘弹出时输入框与键盘之间出现大段空白
+## 3. iOS PWA 键盘弹出时输入框与键盘之间出现大段空白
 
 **问题**：iPhone PWA standalone 模式下，键盘弹出后输入框和键盘之间有巨大间距。原因是底部 `#mobile-tab-bar`（fixed, bottom:0）和 `#input-area` 为 tab bar 预留的 64px padding 在键盘弹出时没有被移除。
 
@@ -50,7 +38,7 @@
 
 ---
 
-## 5. iPad PWA + 外接键盘：闪烁、Shortcuts Bar 遮挡、回车不发送
+## 4. iPad PWA + 外接键盘：闪烁、Shortcuts Bar 遮挡、回车不发送
 
 **问题**：iPad PWA standalone 模式下使用外接键盘时存在三个问题：
 1. **闪烁**：`visualViewport` 的 `scroll` 事件在外接键盘场景下高频触发，且 `visualViewport.height` 返回垃圾值（如 -32），导致 `layout.style.height` 被反复设为无意义值，引起布局抖动
@@ -61,7 +49,7 @@
 
 **实现要求**：
 
-### 5a. notifications.js — viewport 处理重写
+### 4a. notifications.js — viewport 处理重写
 
 - `fullHeight` 基准值改用 `window.innerHeight`（可靠）而非 `visualViewport.height`（iPadOS 外接键盘时不可靠）
 - `onViewportResize` 中读取 `visualViewport.height` 时增加校验：`vvH > 0 && vvH < fullHeight + 50` 时才使用，否则 fallback 到 `fullHeight`
@@ -69,31 +57,31 @@
 - **完全移除 `visualViewport` 的 `scroll` 事件监听**——iPadOS 外接键盘时该事件高频触发且数据不可靠
 - 在 `initNotifications` 开头检测 touch 设备并添加 `.touch-device` class 到 `<html>`
 
-### 5b. notifications.js — 外接键盘检测改用 innerHeight
+### 4b. notifications.js — 外接键盘检测改用 innerHeight
 
 - `_checkExternalKeyboard` 中的 `_vpFull` 和判断逻辑全部改用 `window.innerHeight` 替代 `visualViewport.height`
 - baseline `_extFullH` 通过 `window.addEventListener("resize", ...)` 更新（而非 `visualViewport` resize）
 - 不再依赖 `window.visualViewport` 作为整个外接键盘检测段的入口条件（改为仅检测 `"ontouchstart" in window`）
 
-### 5c. input.js — 回车发送逻辑
+### 4c. input.js — 回车发送逻辑
 
 - Enter 发送的条件从 `!ipad-extkey` 改为 `keyboard-open && !ipad-extkey`
 - 含义：只在虚拟键盘确认打开（`.keyboard-open`）且非外接键盘时才阻止 Enter 发送
 - 外接键盘场景下 `.keyboard-open` 不会存在（viewport 不会缩小 >100px），Enter 自然走发送逻辑
 
-### 5d. base.css — position:fixed 防止页面漂移
+### 4d. base.css — position:fixed 防止页面漂移
 
 - 新增 `.touch-device, .touch-device body { position: fixed; width: 100%; }` 规则
 - 仅作用于 touch 设备（通过 JS 添加的 `.touch-device` class），不影响桌面端
 - 目的：阻止 iPadOS 在 input 聚焦时通过 viewport offset 移动文档（`overflow: hidden` 不够）
 
-### 5e. notifications.js — visualViewport scroll 事件归零 viewport offset
+### 4e. notifications.js — visualViewport scroll 事件归零 viewport offset
 
 - 在 touch 设备上监听 `visualViewport` 的 `scroll` 事件，当 `offsetTop > 0` 时调用 `window.scrollTo(0, 0)` 将 visual viewport 推回原点
 - 原因：即使有 `position: fixed`，iPadOS 仍会在 Shortcuts Bar 出现时通过 visual viewport panning 将页面向上平移，这不是 document scroll，`scrollTop` 无法修正，必须通过 `visualViewport scroll` 事件 + `window.scrollTo` 组合归零
 - 之前注释说"不要监听 visualViewport scroll 会导致闪烁"——那是在没有 `position: fixed` 时的问题；有了 `position: fixed` 后只需归零 offset 不改 layout height，不会闪烁
 
-### 5f. input.css — Shortcuts Bar padding 补偿
+### 4f. input.css — Shortcuts Bar padding 补偿
 
 - 新增 `.ipad-extkey #input-area { padding-bottom: calc(var(--safe-bottom) + 55px + 8px); }` 规则
 - 原因：5d + 5e 完全阻止了系统对页面的推高行为，因此需要自己用 CSS padding 将输入区域推高避开 Shortcuts Bar（~55px）
