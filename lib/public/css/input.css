@@ -696,6 +696,14 @@
   #input-area {
     padding-bottom: calc(var(--safe-bottom) + 56px + 8px);
   }
+
+  /* When iOS keyboard is open: hide tab bar, remove extra padding */
+  .keyboard-open #mobile-tab-bar {
+    display: none !important;
+  }
+  .keyboard-open #input-area {
+    padding-bottom: 8px;
+  }
 }
 
 /* ==========================================================================
