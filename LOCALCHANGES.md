@@ -86,3 +86,37 @@
 - 新增 `.ipad-extkey #input-area { padding-bottom: calc(var(--safe-bottom) + 55px + 8px); }` 规则
 - 原因：5d + 5e 完全阻止了系统对页面的推高行为，因此需要自己用 CSS padding 将输入区域推高避开 Shortcuts Bar（~55px）
 - 三层防御的完整组合：`position: fixed`（阻止 document scroll）+ `visualViewport scroll 归零`（阻止 viewport panning）+ `padding 补偿`（自己精确抬高输入框）
+
+---
+
+## 5. Worktree 创建到同级目录 & 任意位置 worktree 可见
+
+**问题**：原实现将 worktree 创建在项目目录内部，且只有项目目录内的 worktree 才标记为 `accessible`。此外 slug 生成不一致——创建时用 `branchName`，rescan 时用 `path.basename`，当分支名含 `/`（如 `feat/login`）时重启后 slug 不匹配，导致 URL 变化和 session 数据孤立。
+
+**实现要求**：
+
+### 5a. worktree.js — 创建路径改为同级目录
+
+- `createWorktree` 中目录名改为 `{parentDirName}-{safeBranch}`（`/` 替换为 `-`），路径为 `path.resolve(resolvedParent, "..", wtDirName)`
+- 示例：项目 `my-app` 创建分支 `feat/login` → 目录 `../my-app-feat-login`
+
+### 5b. worktree.js — accessible 无条件 true
+
+- `scanWorktrees` 中移除 `resolvedWt.indexOf(resolvedParent + path.sep) === 0` 检查，所有 git 报告的 worktree 均为 `accessible = true`
+- 新增 `absPath` 字段存储解析后的绝对路径
+- 新增 `slugSuffix` 字段：优先用 `branch.replace(/\//g, "-")`，fallback 到 `dirName`，保证创建和 rescan 时 slug 一致
+
+### 5c. daemon.js — worktreeRegistry 改为存储对象
+
+- `worktreeRegistry` 类型从 `parentSlug -> [wtSlug, ...]` 改为 `parentSlug -> [{ slug, path }, ...]`
+- 所有引用处（注册、查找、过滤、清理）同步改为对象访问
+- slug 生成统一用 `slugSuffix`（rescan）或 `branchName.replace(/\//g, "-")`（创建时）
+
+### 5d. daemon.js — removeWorktree 用绝对路径
+
+- 删除 worktree 时从 registry 中查找绝对路径，直接传给 `removeWorktree(parentPath, wtAbsPath)`
+- `removeWorktree` 函数签名从 `(projectPath, worktreeDirName)` 改为 `(projectPath, wtAbsPath)`
+
+### 5e. daemon.js — rescan 匹配改用绝对路径
+
+- `rescanWorktrees` 中新增/移除 worktree 的匹配逻辑从 `dirName` 改为 `absPath`，避免同名目录误匹配
