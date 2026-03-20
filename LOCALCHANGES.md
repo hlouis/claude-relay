@@ -120,3 +120,23 @@
 ### 5e. daemon.js — rescan 匹配改用绝对路径
 
 - `rescanWorktrees` 中新增/移除 worktree 的匹配逻辑从 `dirName` 改为 `absPath`，避免同名目录误匹配
+
+### 5f. sidebar.js — 分支名不做 sanitize
+
+- 前端 `showWorktreeModal` 中移除 `branch.replace(/\//g, "-")`，将用户输入的原始分支名直接发送给后端
+- 原因：后端 `createWorktree` 已对目录名做 `safeBranch` 处理，前端多做一次导致分支名中 `/` 被替换为 `-`（如 `feat/login` 变成 `feat-login`）
+
+### 5g. worktree.js — scanWorktrees 前先执行 git worktree prune
+
+- `scanWorktrees` 在 `git worktree list --porcelain` 前先调用 `git worktree prune`
+- 原因：worktree 目录被外部删除后，git 元数据仍残留，`git worktree list` 仍会报告已不存在的 worktree，导致 rescan 无法正确检测删除
+
+### 5h. daemon.js — rescan 定时器无条件启动
+
+- `scanAndRegisterWorktrees` 移除 `if (worktrees.length === 0) return` 提前返回，所有 git 项目启动时都无条件启动 10s rescan 定时器
+- 目的：通过命令行 `git worktree add` 创建的 worktree 也能被自动发现和注册
+
+### 5i. daemon.js — onCreateWorktree 补启 rescan 定时器
+
+- `onCreateWorktree` 中创建 worktree 后检查 `worktreeTimers[parentSlug]`，若无则启动 rescan 定时器
+- 覆盖场景：项目首次通过 UI 创建 worktree 时，确保后续删除能被定时器回收
