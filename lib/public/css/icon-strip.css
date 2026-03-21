@@ -1159,8 +1159,25 @@ select.wt-modal-input {
 }
 
 .mobile-project-item.wt-item {
-  padding-left: 28px;
+  padding-left: 42px;
   opacity: 0.85;
+  font-size: 13px;
+}
+
+.mobile-project-item.wt-item .mobile-project-abbrev {
+  width: 26px;
+  height: 26px;
+  font-size: 11px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dimmer);
+}
+
+.mobile-project-item.wt-item.active .mobile-project-abbrev {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .mobile-project-item.wt-disabled {
@@ -1174,7 +1191,7 @@ select.wt-modal-input {
   margin-left: auto;
   cursor: pointer;
   transition: transform 0.15s ease;
-  padding: 4px;
+  padding: 6px 4px;
 }
 
 .mobile-project-folder.collapsed .mobile-folder-chevron {
