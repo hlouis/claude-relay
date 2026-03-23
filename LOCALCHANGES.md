@@ -140,3 +140,29 @@
 
 - `onCreateWorktree` 中创建 worktree 后检查 `worktreeTimers[parentSlug]`，若无则启动 rescan 定时器
 - 覆盖场景：项目首次通过 UI 创建 worktree 时，确保后续删除能被定时器回收
+
+---
+
+## 6. Rewind 使用 SDK forkSession 替代 resumeSessionAt
+
+**问题**：原 rewind 实现使用 `resumeSessionAt` 在 resume 时截断历史，但这只影响 Clay 侧的 UI 显示——SDK 内部的 session 文件（`~/.claude/projects/` 下的 JSONL）未被修改。用 `claude resume` 恢复该 session 时看到的仍是完整历史，rewind 完全无效。
+
+**根因**：`resumeSessionAt` 是 SDK 启动时的一次性参数，不会持久化修改 session 文件。需要使用 SDK 提供的 `forkSession()` API 真正截断并创建新 session。
+
+**实现要求**：
+
+### 6a. project.js — rewind 逻辑改用 forkSession
+
+- 移除 `lastRewindUuid` 的计算和赋值逻辑
+- rewind 时调用 `sdkMod.forkSession(oldCliSessionId, { upToMessageId: msg.uuid, dir: cwd })` 创建截断后的新 session
+- 将 `session.cliSessionId` 更新为 fork 返回的新 sessionId
+- 删除旧的 Clay session 文件（`~/.clay/sessions/` 下的 JSONL），新文件由后续 `saveSessionFile` 写入
+
+### 6b. sdk-bridge.js — 移除 resumeSessionAt 逻辑
+
+- 从 `queryOptions` 构建逻辑中移除 `session.lastRewindUuid` 和 `resumeSessionAt` 相关代码（两处：主 query 和 worker query）
+
+### 6c. sessions.js — 移除 lastRewindUuid 持久化
+
+- `saveSessionFile` 中移除 `lastRewindUuid` 的序列化
+- `loadAllSessions` 中移除 `lastRewindUuid` 的反序列化
