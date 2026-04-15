@@ -166,6 +166,16 @@
     color: #fff;
   }
 
+  .mobile-project-abbrev.mobile-project-emoji {
+    background: none;
+    font-size: 20px;
+    font-weight: normal;
+  }
+
+  .mobile-project-item.active .mobile-project-abbrev.mobile-project-emoji {
+    background: none;
+  }
+
   .mobile-project-name {
     flex: 1;
     overflow: hidden;
