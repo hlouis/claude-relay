@@ -4,3 +4,4 @@ node_modules/
 ref/
 TODO.md
 publish.sh
+graphify-out/
