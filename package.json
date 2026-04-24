@@ -1,16 +1,12 @@
 {
-  "name": "clay-server",
+  "name": "@hlouis/clay",
   "version": "2.12.0-beta.1",
   "description": "Web UI for Claude Code. Any device. Push notifications.",
   "bin": {
-    "clay-server": "./bin/cli.js",
-    "claude-relay": "./bin/claude-relay.js",
-    "clay-dev": "./bin/cli.js"
+    "clay": "bin/cli.js"
   },
   "scripts": {
     "dev": "node bin/cli.js --dev",
-    "prepack": "npm pkg delete bin.clay-dev",
-    "postpack": "npm pkg set bin.clay-dev=./bin/cli.js",
     "semantic-release": "semantic-release"
   },
   "files": [
@@ -29,13 +25,16 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/chadbyte/claude-relay.git"
+    "url": "git+https://github.com/hlouis/claude-relay.git"
   },
   "bugs": {
-    "url": "https://github.com/chadbyte/claude-relay/issues"
+    "url": "https://github.com/hlouis/claude-relay/issues"
   },
-  "homepage": "https://github.com/chadbyte/claude-relay#readme",
-  "author": "Chad",
+  "homepage": "https://github.com/hlouis/claude-relay#readme",
+  "author": "Louis Huang <hlouis@gmail.com>",
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.118",
     "@lydell/node-pty": "^1.2.0-beta.3",

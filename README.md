@@ -6,14 +6,14 @@
 
 <h3 align="center">A multi-user web UI for Claude Code, built on the Agent SDK.</h3>
 
-[![npm version](https://img.shields.io/npm/v/clay-server)](https://www.npmjs.com/package/clay-server) [![npm downloads](https://img.shields.io/npm/dw/clay-server)](https://www.npmjs.com/package/clay-server) [![GitHub stars](https://img.shields.io/github/stars/chadbyte/clay)](https://github.com/chadbyte/clay) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/chadbyte/clay/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/%40hlouis%2Fclay)](https://www.npmjs.com/package/@hlouis/clay) [![npm downloads](https://img.shields.io/npm/dw/%40hlouis%2Fclay)](https://www.npmjs.com/package/@hlouis/clay) [![GitHub stars](https://img.shields.io/github/stars/hlouis/claude-relay)](https://github.com/hlouis/claude-relay) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/hlouis/claude-relay/blob/main/LICENSE)
 
 Clay extends Claude Code from a single-user CLI into a multi-user, multi-session web platform. It runs locally as a daemon, serves a browser UI over WebSocket, and lets non-technical teammates use Claude Code without touching the terminal.
 
 No relay server in the cloud. Your machine is the server. Zero install — one command:
 
 ```bash
-npx clay-server
+npx @hlouis/clay
 # Scan the QR code to connect from any device
 ```
 
@@ -24,7 +24,7 @@ npx clay-server
 **Requirements:** Node.js 20+, Claude Code CLI (authenticated).
 
 ```bash
-npx clay-server
+npx @hlouis/clay
 ```
 
 On first run, it walks you through port and PIN setup.
@@ -140,7 +140,7 @@ No. Clay runs on the Claude Agent SDK. It doesn't wrap terminal output. It commu
 Free. MIT-licensed open source. All code is public.
 
 **"Do I need to install anything?"**
-No. `npx clay-server` runs it directly. No global install, no build step, no Docker. Node.js and Claude Code are the only prerequisites.
+No. `npx @hlouis/clay` runs it directly. No global install, no build step, no Docker. Node.js and Claude Code are the only prerequisites.
 
 **"Does my code leave my machine?"**
 The Clay server runs locally. Files stay local. Only Claude API calls go out, which is the same as using the CLI.
@@ -200,22 +200,22 @@ If push registration fails: check that your browser trusts the HTTPS certificate
 ## CLI Options
 
 ```bash
-npx clay-server              # Default (port 2633)
-npx clay-server -p 8080      # Specify port
-npx clay-server --yes        # Skip interactive prompts (use defaults)
-npx clay-server -y --pin 123456
+npx @hlouis/clay              # Default (port 2633)
+npx @hlouis/clay -p 8080      # Specify port
+npx @hlouis/clay --yes        # Skip interactive prompts (use defaults)
+npx @hlouis/clay -y --pin 123456
                               # Non-interactive + PIN (for scripts/CI)
-npx clay-server --no-https   # Disable HTTPS
-npx clay-server --no-update  # Skip update check
-npx clay-server --debug      # Enable debug panel
-npx clay-server --add .      # Add current directory to running daemon
-npx clay-server --add /path  # Add project by path
-npx clay-server --remove .   # Remove project
-npx clay-server --list       # List registered projects
-npx clay-server --shutdown   # Stop running daemon
-npx clay-server --dangerously-skip-permissions
+npx @hlouis/clay --no-https   # Disable HTTPS
+npx @hlouis/clay --no-update  # Skip update check
+npx @hlouis/clay --debug      # Enable debug panel
+npx @hlouis/clay --add .      # Add current directory to running daemon
+npx @hlouis/clay --add /path  # Add project by path
+npx @hlouis/clay --remove .   # Remove project
+npx @hlouis/clay --list       # List registered projects
+npx @hlouis/clay --shutdown   # Stop running daemon
+npx @hlouis/clay --dangerously-skip-permissions
                               # Bypass all permission prompts (requires PIN at setup)
-npx clay-server --dev        # Dev mode (foreground, auto-restart on lib/ changes, port 2635)
+npx @hlouis/clay --dev        # Dev mode (foreground, auto-restart on lib/ changes, port 2635)
 ```
 
 ---
@@ -250,17 +250,17 @@ For detailed sequence diagrams, daemon architecture, and design decisions, see [
 
 ## Contributors
 
-<a href="https://github.com/chadbyte/clay/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=chadbyte/clay" />
+<a href="https://github.com/hlouis/claude-relay/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=hlouis/claude-relay" />
 </a>
 
 ## Contributing
 
 Bug fixes and typo corrections are welcome. For feature suggestions, please open an issue first:
-[https://github.com/chadbyte/clay/issues](https://github.com/chadbyte/clay/issues)
+[https://github.com/hlouis/claude-relay/issues](https://github.com/hlouis/claude-relay/issues)
 
 If you're using Clay, let us know how in Discussions:
-[https://github.com/chadbyte/clay/discussions](https://github.com/chadbyte/clay/discussions)
+[https://github.com/hlouis/claude-relay/discussions](https://github.com/hlouis/claude-relay/discussions)
 
 ## Disclaimer
 

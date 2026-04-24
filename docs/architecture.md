@@ -54,8 +54,8 @@ sequenceDiagram
 
 ```mermaid
 graph TB
-    CLI1["npx clay-server<br/>(Terminal 1)"]
-    CLI2["npx clay-server<br/>(Terminal 2)"]
+    CLI1["npx @hlouis/clay<br/>(Terminal 1)"]
+    CLI2["npx @hlouis/clay<br/>(Terminal 2)"]
     IPC["Unix Socket<br/>daemon.sock"]
     Daemon["Daemon Process<br/>lib/daemon.js"]
     HTTP["HTTP/WS Server<br/>:2633"]

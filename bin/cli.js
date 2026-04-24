@@ -6,10 +6,8 @@ if (_nodeMajor < 20) {
   console.error("");
   console.error("\x1b[31m[clay] Node.js 20+ is required (current: " + process.version + ")\x1b[0m");
   console.error("[clay] The Claude Agent SDK 0.2.40+ requires Node 20 for Symbol.dispose support.");
-  console.error("[clay] If you cannot upgrade Node, use claude-relay@2.4.3 which supports Node 18.");
   console.error("");
   console.error("  Upgrade Node:  nvm install 22 && nvm use 22");
-  console.error("  Or use older:  npx claude-relay@2.4.3");
   console.error("");
   process.exit(78);
 }
@@ -115,10 +113,10 @@ for (var i = 0; i < args.length; i++) {
   } else if (args[i] === "--os-users") {
     osUsersMode = true;
   } else if (args[i] === "-h" || args[i] === "--help") {
-    console.log("Usage: clay-server [-p|--port <port>] [--host <address>] [--no-https] [--no-update] [--debug] [-y|--yes] [--pin <pin>] [--shutdown] [--restart]");
-    console.log("       clay-server --add <path>     Add a project to the running daemon");
-    console.log("       clay-server --remove <path>  Remove a project from the running daemon");
-    console.log("       clay-server --list            List registered projects");
+    console.log("Usage: clay [-p|--port <port>] [--host <address>] [--no-https] [--no-update] [--debug] [-y|--yes] [--pin <pin>] [--shutdown] [--restart]");
+    console.log("       clay --add <path>     Add a project to the running daemon");
+    console.log("       clay --remove <path>  Remove a project from the running daemon");
+    console.log("       clay --list            List registered projects");
     console.log("");
     console.log("Options:");
     console.log("  -p, --port <port>  Port to listen on (default: 2633)");
@@ -203,7 +201,7 @@ if (addPath !== null) {
   var addConfig = loadConfig();
   isDaemonAliveAsync(addConfig).then(function (alive) {
     if (!alive) {
-      console.error("No running daemon. Start with: npx clay-server");
+      console.error("No running daemon. Start with: npx @hlouis/clay");
       process.exit(1);
     }
     sendIPCCommand(socketPath(), { cmd: "add_project", path: absAdd }).then(function (res) {
@@ -229,7 +227,7 @@ if (removePath !== null) {
   var removeConfig = loadConfig();
   isDaemonAliveAsync(removeConfig).then(function (alive) {
     if (!alive) {
-      console.error("No running daemon. Start with: npx clay-server");
+      console.error("No running daemon. Start with: npx @hlouis/clay");
       process.exit(1);
     }
     sendIPCCommand(socketPath(), { cmd: "remove_project", path: absRemove }).then(function (res) {
@@ -250,7 +248,7 @@ if (listMode) {
   var listConfig = loadConfig();
   isDaemonAliveAsync(listConfig).then(function (alive) {
     if (!alive) {
-      console.error("No running daemon. Start with: npx clay-server");
+      console.error("No running daemon. Start with: npx @hlouis/clay");
       process.exit(1);
     }
     sendIPCCommand(socketPath(), { cmd: "get_status" }).then(function (res) {
@@ -376,7 +374,7 @@ function onDaemonDied() {
     // Intentional shutdown, no restart
     log("");
     log(sym.warn + "  " + a.yellow + "Server has been shut down." + a.reset);
-    log(a.dim + "     Run " + a.reset + "npx clay-server" + a.dim + " to start again." + a.reset);
+    log(a.dim + "     Run " + a.reset + "npx @hlouis/clay" + a.dim + " to start again." + a.reset);
     log("");
     process.exit(0);
     return;
@@ -1360,7 +1358,7 @@ function setup(callback) {
             log(sym.bar);
             log(sym.warn + "  " + a.yellow + "OS user isolation requires root." + a.reset);
             log(sym.bar + "  Run:");
-            log(sym.bar + "    " + a.bold + "sudo npx clay-server" + a.reset);
+            log(sym.bar + "    " + a.bold + "sudo npx @hlouis/clay" + a.reset);
             log(sym.end);
             log("");
             process.exit(0);
@@ -1971,16 +1969,15 @@ function showMainMenu(config, ip) {
           case "exit":
             log("");
             log("  " + a.bold + "Bye!" + a.reset + "  " + a.dim + "Server is still running in background." + a.reset);
-            log("  " + a.dim + "Run " + a.reset + "npx clay-server" + a.dim + " to come back here." + a.reset);
+            log("  " + a.dim + "Run " + a.reset + "npx @hlouis/clay" + a.dim + " to come back here." + a.reset);
             log("");
             process.exit(0);
             break;
         }
       }, {
         hint: [
-          "claude-relay has been renamed to clay-server  ·  npx clay-server",
-          "Run npx clay-server in other directories to add more projects.",
-          "★ github.com/chadbyte/claude-relay — Press s to star the repo",
+          "Run npx @hlouis/clay in other directories to add more projects.",
+          "★ github.com/hlouis/claude-relay — Press s to star the repo",
         ],
         keys: [
           { key: "o", onKey: function () {
@@ -1988,7 +1985,7 @@ function showMainMenu(config, ip) {
             showMainMenu(config, ip);
           }},
           { key: "s", onKey: function () {
-            openUrl("https://github.com/chadbyte/claude-relay");
+            openUrl("https://github.com/hlouis/claude-relay");
             showMainMenu(config, ip);
           }},
         ],
@@ -2886,7 +2883,7 @@ var currentVersion = require("../package.json").version;
       // os-users requires root
       if (savedOsUsers && typeof process.getuid === "function" && process.getuid() !== 0) {
         console.error(a.red + "OS user isolation requires root." + a.reset);
-        console.error("Run:  " + a.bold + "sudo npx clay-server" + a.reset);
+        console.error("Run:  " + a.bold + "sudo npx @hlouis/clay" + a.reset);
         process.exit(1);
         return;
       }

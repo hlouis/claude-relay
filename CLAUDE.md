@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Clay (npm: `clay-server`, legacy name: `claude-relay`) is a local relay server that provides a web UI for Claude Code. It drives Claude Code via the Claude Agent SDK and streams data to the browser over WebSocket. Not a CLI wrapper — it uses the SDK's async iterable interface directly.
+Clay (npm: `@hlouis/clay`) is a local relay server that provides a web UI for Claude Code. It drives Claude Code via the Claude Agent SDK and streams data to the browser over WebSocket. Not a CLI wrapper — it uses the SDK's async iterable interface directly.
 
 ## Development Commands
 
