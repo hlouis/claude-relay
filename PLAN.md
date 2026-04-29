@@ -4,6 +4,8 @@
 > **Owner:** TBD. **Target completion:** TBD.
 > **Prereqs done:** `protocol/types.ts`, fixtures, daemon round-trip test,
 > Apple Codable mirror — all green as of `9f1d83b`.
+> **Latest progress:** M1 / M2 / M3 shipped (see "Progress log" below).
+> 51 Swift tests + 85 daemon tests green. Next: **M4**.
 
 ## 1. Goal
 
@@ -51,6 +53,113 @@ Everything below is deliberately deferred. Don't sneak any of it in.
   - Right pane: chat (messages, composer, permission modal).
 - **D4 — Add `protocolVersion: "1"` to `info`.** One-string daemon
   change; cheap insurance against silent v2 drift.
+
+## 3a. Progress log (2026-04-29)
+
+### Milestones complete
+
+| Milestone | Status | Commits | Test coverage |
+|-----------|--------|---------|---------------|
+| §3 decisions + R4 prototype | ✅ | `1215ff1` | `protocol/scripts/r4-handshake.mjs` runs against live daemon |
+| **M1** WebSocket connection actor | ✅ DoD met | `d7f930d` `6e40799` `4304f7c` | All 6 PLAN test cases covered (see §M1 test gate) |
+| **M2** Inbound dispatcher | ✅ DoD met | `f128246` | Replay-all-29-s2c-fixtures + 3 lifecycle cases |
+| **M3** Outbound encoder | ✅ DoD met | `fd3e431` | 12 helper-vs-c2s-fixture snapshots + coverage check |
+| R7 fix: `info.osUsers` schema | ✅ | `9e493ec` | Was: `OsUser[]?`. Now: `Bool?`. `OsUser` / `ClayOsUser` deleted. |
+
+### Test totals (post-M3)
+- Apple: **51 tests / 10 suites / ~3.3 s** (`swift test --package-path apple/Packages`)
+- Daemon: **85 tests** (`node --test daemon/test/*.js`)
+
+### Code locations (Apple)
+
+```
+apple/Packages/Sources/ClarcCore/Clay/
+├── Connection/
+│   ├── ClayConnection.swift         ← actor, M1
+│   ├── ClayConnectionConfig.swift   ← URL parsing + httpOrigin + resume query, M1
+│   └── ClayConnectionStatus.swift   ← status + failure enums, M1
+├── Dispatcher/
+│   ├── ClayMessageDispatcher.swift  ← actor pump, M2
+│   └── ClayMessageReceiver.swift    ← single-method protocol, M2
+└── Outbound/
+    ├── ClayOutbound.swift           ← static factories, M3
+    └── ClayConnection+Outbound.swift ← async-throws send helpers, M3
+
+apple/Packages/Tests/ClarcCoreTests/Clay/
+├── ClayConnectionConfigTests.swift          ← 9 cases (URL shapes)
+├── ClayConnectionStatusTests.swift          ← 5 cases (failure classification)
+├── ClayConnectionTests.swift                ← 4 cases (offline behaviour)
+├── ClayConnectionIntegrationTests.swift     ← 4 cases (NWListener WS mock)
+├── ClayConnectionAuthAndResumeTests.swift   ← 2 cases (HTTP+WS unified mock)
+├── ClayMessageDispatcherTests.swift         ← 4 cases (incl. 29-fixture replay)
+├── ClayOutboundTests.swift                  ← 12 helper snapshots + coverage
+└── Support/
+    ├── WebSocketMockServer.swift  ← NWListener + NWProtocolWebSocket
+    └── MockDaemonServer.swift     ← Hand-rolled HTTP/1.1 + RFC 6455 WS
+```
+
+### Key implementation choices the next session must respect
+
+- **One URLSession per `ClayConnection`** — cookies set by `POST /auth`
+  must persist across reconnect. Don't recreate the session on each
+  attempt; do recreate the `URLSessionWebSocketTask`.
+- **Two distinct "up" states**: `.connected` (transport open) vs.
+  `.live` (`info` frame decoded). The dispatcher and view layer should
+  gate on `.live`. `client_count` and other early frames arrive between
+  the two — that's expected.
+- **`info` frame can race ahead of `didOpenWithProtocol`.** Any
+  non-terminal pre-live state (`.connecting`, `.connected`,
+  `.reconnecting`) must promote to `.live` on receiving `info`. The
+  delegate callback must NOT downgrade `.live` back to `.connected`.
+  See `ClayConnection.handleFrame` and `handleDidOpen`.
+- **`ClayMessageDispatcher` is a pure pump** — no state, no routing
+  switch. The receiver (M4: `ClayProjectState`) owns the `switch
+  message` and Swift's exhaustiveness check.
+- **`ClayOutbound` factories vs. `ClayConnection` extensions**: factories
+  build `ClayClientMessage` values (testable without a connection); the
+  actor extension methods just `try await send(factory(...))`. Don't
+  collapse them — the testability matters.
+- **Outstanding R7 work**: `client_count` and any other daemon-emitted
+  messages absent from `protocol/types.ts` still need an audit pass
+  before M8. Currently dropped by `ClayConnection.handleFrame`'s
+  forward-compat decode path.
+
+### What M4 needs to do
+
+Per §M4 below, plus these constraints learned during M1–M3:
+
+- M4 owns the single `switch message` over `ClayServerMessage` and
+  applies state mutations. It conforms to `ClayMessageReceiver` (M2).
+- M4 owns `lastSeq` tracking and calls
+  `ClayConnection.updateResume(sessionId:lastSeq:)` per the web client
+  rule (`lastSeq = msg.seq + 1` after every seq-bearing message).
+  M1 already has the plumbing — just feed it.
+- M4's `ClayChatItem` enum MUST coalesce `delta` events into a single
+  growing fragment. See PLAN R5 for the reconnect-replay edge case
+  the test suite must cover.
+- Open question for the next session: package boundary. Option A keep
+  it in `ClarcCore` (already imports `Foundation` only — adding
+  `Observation` is fine, the package builds for macOS 15+ which has
+  it); Option B split into a new `ClayClient` package. Default to A
+  unless a concrete reason to split appears.
+- MainActor isolation boundary: the dispatcher runs on its own task
+  and calls `await receiver.receive(_:)`. If `ClayProjectState` is
+  `@MainActor @Observable`, the `receive` method just hops to the
+  main actor — fine. Don't introduce a separate "model actor" — the
+  hop cost is trivial and the simpler ownership wins.
+
+### How to resume in a new session
+
+1. `git log --oneline | head -10` to see the commit chain.
+2. `swift test --package-path apple/Packages` should print 51 tests
+   passing — if it doesn't, fix that before touching M4.
+3. Read this Progress log + §M4 below.
+4. Start with `ClayChatItem` (data shape), then `ClaySessionState`
+   (per-session container), then `ClayProjectState` (top-level
+   `@Observable` owning sessions + connection status mirror).
+5. The synthetic-stream test described in §M4's test gate is the
+   primary acceptance gate — write it concurrently with the state
+   types so the design pressure is in both directions.
 
 ## 4. Architecture overview
 
