@@ -1,0 +1,7 @@
+{
+  "type": "tool_result",
+  "id": "toolu_01ABC123XYZ",
+  "content": "1\tvar express = require('express');\n2\t\n3\tfunction authMiddleware(req, res, next) {\n",
+  "is_error": false,
+  "seq": 7
+}

@@ -1,0 +1,6 @@
+{
+  "type": "user_message",
+  "text": "Refactor the auth middleware to drop the legacy session token path.",
+  "clientMsgId": "c-3f9e2",
+  "seq": 0
+}

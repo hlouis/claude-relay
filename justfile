@@ -40,6 +40,6 @@ mac-release:
 
 # --- Protocol ---
 
-# Validate the protocol schema (placeholder).
+# Round-trip every protocol/fixtures/*.json against protocol/types.ts.
 protocol-check:
-    @echo "TODO: wire JSON schema validation when protocol/schema.json lands"
+    cd daemon && node --test test/protocol.test.js

@@ -1,0 +1,5 @@
+{
+  "type": "rename_session",
+  "id": 7,
+  "title": "Auth middleware rewrite"
+}

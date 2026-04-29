@@ -1,0 +1,9 @@
+{
+  "type": "rate_limit",
+  "status": "allowed_warning",
+  "resetsAt": 1730212200000,
+  "rateLimitType": "five_hour",
+  "utilization": 0.92,
+  "isUsingOverage": false,
+  "seq": 11
+}

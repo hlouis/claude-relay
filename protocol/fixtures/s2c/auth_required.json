@@ -1,0 +1,7 @@
+{
+  "type": "auth_required",
+  "text": "Claude Code is not logged in.",
+  "linuxUser": null,
+  "canAutoLogin": true,
+  "seq": 14
+}

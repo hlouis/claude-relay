@@ -1,0 +1,17 @@
+{
+  "type": "history_done",
+  "lastUsage": {
+    "input_tokens": 1234,
+    "output_tokens": 567,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 8000
+  },
+  "lastModelUsage": {
+    "claude-sonnet-4-6": {
+      "input_tokens": 1234,
+      "output_tokens": 567
+    }
+  },
+  "lastCost": 0.0182,
+  "lastStreamInputTokens": 9234
+}

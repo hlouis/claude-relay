@@ -1,0 +1,20 @@
+{
+  "type": "result",
+  "cost": 0.0182,
+  "duration": 4218,
+  "usage": {
+    "input_tokens": 1234,
+    "output_tokens": 567,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 8000
+  },
+  "modelUsage": {
+    "claude-sonnet-4-6": {
+      "input_tokens": 1234,
+      "output_tokens": 567
+    }
+  },
+  "sessionId": "01J9C2K0RX9PT7NM4ABC123XYZ",
+  "lastStreamInputTokens": 9234,
+  "seq": 12
+}

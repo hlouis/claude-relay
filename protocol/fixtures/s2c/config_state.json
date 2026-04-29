@@ -1,0 +1,9 @@
+{
+  "type": "config_state",
+  "model": "claude-sonnet-4-6",
+  "mode": "default",
+  "effort": "medium",
+  "betas": [],
+  "thinking": "adaptive",
+  "thinkingBudget": 10000
+}

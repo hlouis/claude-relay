@@ -1,0 +1,18 @@
+{
+  "type": "info",
+  "cwd": "/Users/jane/Develop/myproject",
+  "slug": "myproject-a3f1",
+  "project": "myproject",
+  "version": "1.2.2",
+  "debug": false,
+  "dangerouslySkipPermissions": false,
+  "osUsers": [
+    { "username": "jane", "uid": 501 }
+  ],
+  "lanHost": "192.168.1.42",
+  "projectCount": 3,
+  "projects": [
+    { "slug": "myproject-a3f1", "title": "myproject" }
+  ],
+  "projectOwnerId": null
+}

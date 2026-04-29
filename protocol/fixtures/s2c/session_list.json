@@ -1,0 +1,29 @@
+{
+  "type": "session_list",
+  "sessions": [
+    {
+      "id": 7,
+      "cliSessionId": "01J9C2K0RX9PT7NM4ABC123XYZ",
+      "title": "Auth middleware rewrite",
+      "active": true,
+      "isProcessing": false,
+      "lastActivity": 1730208600000,
+      "loop": null,
+      "ownerId": null,
+      "sessionVisibility": "shared",
+      "unread": 0
+    },
+    {
+      "id": 6,
+      "cliSessionId": null,
+      "title": "New Session",
+      "active": false,
+      "isProcessing": false,
+      "lastActivity": 1730200000000,
+      "loop": null,
+      "ownerId": null,
+      "sessionVisibility": "shared",
+      "unread": 2
+    }
+  ]
+}
