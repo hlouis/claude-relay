@@ -8,7 +8,8 @@ Clarc is a native macOS desktop client for the Claude Code CLI. Written in Swift
 
 ## Writing Rules
 
-- All text committed to the project — code comments, commit messages, PR descriptions, log messages — must be written in **English**. Chat responses to the user remain in Korean.
+- All text committed to the project — code comments, commit messages, PR descriptions, log messages — must be written in **English**.
+- Chat responses to the user are in Chinese (see the repo-root `CLAUDE.md`).
 
 ## Build & Run
 
