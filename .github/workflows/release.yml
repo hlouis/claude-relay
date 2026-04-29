@@ -42,9 +42,11 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
+        working-directory: daemon
         run: npm ci
 
       - name: Run semantic-release (beta)
+        working-directory: daemon
         run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -90,9 +92,11 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
+        working-directory: daemon
         run: npm ci
 
       - name: Run semantic-release (stable)
+        working-directory: daemon
         run: npx semantic-release --branches release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
