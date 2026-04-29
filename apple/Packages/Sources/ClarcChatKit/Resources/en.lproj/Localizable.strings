@@ -1,0 +1,5 @@
+/* English — base localization for ClarcChatKit */
+
+// MARK: - ToolResultView
+"Show less" = "Show less";
+"Show more" = "Show more";

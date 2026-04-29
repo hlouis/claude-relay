@@ -1,0 +1,25 @@
+# Xcode user data
+xcuserdata/
+*.xcuserdatad/
+
+# macOS
+.DS_Store
+
+# gstack browser logs
+.gstack/
+
+# Claude config
+.claude/
+
+# Deployment environment variables (contains secrets)
+scripts/.env
+
+# Build artifacts
+build/
+Packages/.build/
+
+# Sparkle private key (only public key is included in Xcode build settings)
+scripts/.sparkle_private_key
+
+# Sparkle CLI tools (reinstallable via setup_sparkle.sh)
+scripts/sparkle_tools/
