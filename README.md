@@ -1,35 +1,55 @@
 # claude-relay
 
-Monorepo for the Clay daemon and its native Apple clients.
+Run Claude Code on one machine, drive it from anywhere.
+
+A daemon (`@hlouis/clay`) wraps the Claude Agent SDK and exposes it over WebSocket. Clients — a bundled web UI, the macOS app Clarc, and a planned iOS app — connect to the daemon to drive Claude remotely.
 
 ## Layout
 
 | Path | Contents |
 |------|----------|
-| [`daemon/`](daemon/) | Clay daemon — Node.js HTTP/WebSocket server, published as [`@hlouis/clay`](https://www.npmjs.com/package/@hlouis/clay) on npm. Includes the bundled browser frontend. |
-| [`apple/`](apple/) | Apple platform clients (Clarc for macOS, iOS target planned). Xcode workspace + Swift Packages. |
-| `protocol/` | Shared WebSocket protocol artifacts. Single source of truth as the daemon ↔ client contract evolves. |
+| [`daemon/`](daemon/) | Clay daemon — Node.js WS + HTTP server with bundled web UI. Published as [`@hlouis/clay`](https://www.npmjs.com/package/@hlouis/clay). |
+| [`apple/`](apple/) | Clarc — native client for macOS, iOS planned. Xcode workspace + Swift Packages. |
+| [`protocol/`](protocol/) | Shared WebSocket protocol contract between daemon and clients. |
 
-## Quick start
+## Use
+
+On a host with `claude` installed:
 
 ```bash
-# Daemon
+npx @hlouis/clay
+```
+
+Open the URL it prints and set a PIN.
+
+**macOS app:** download the latest DMG from [Releases](https://github.com/hlouis/claude-relay/releases). Sparkle handles auto-update.
+
+## Develop
+
+Requires Node ≥ 20 and Xcode ≥ 16 (for the Apple side).
+
+```bash
+# Daemon — dev server on http://localhost:2635
 cd daemon && npm install && npm run dev
 
 # Apple
 open apple/Clarc.xcodeproj
 ```
 
-## Repository history
+The top-level [`justfile`](justfile) wraps common tasks (`just daemon-dev`, `just mac-build`, …). Install with `brew install just`.
 
-The macOS client previously lived at [ttnear/Clarc](https://github.com/ttnear/Clarc) and was merged into this repo via `git subtree`. Pre-merge history is preserved — `git blame apple/...` traces back to the original Clarc commits.
+Protocol changes touch both sides — keep daemon and client updates in the same PR.
 
 ## Releases
 
-- **Daemon**: `@hlouis/clay` on npm, automated via semantic-release on push to `main` (beta) / `release` (stable).
-- **Apple (macOS)**: signed DMG + Sparkle appcast, built locally via `apple/scripts/release.sh`.
+- **Daemon** — semantic-release pipeline (currently paused during the v2 monorepo restructure).
+- **macOS** — `apple/scripts/release.sh` produces a signed DMG and updates the Sparkle appcast.
 
-See each subproject's README and CHANGELOG for details.
+## History
+
+The macOS client originated at [ttnear/Clarc](https://github.com/ttnear/Clarc) and was merged into this repo via `git subtree`. `git blame apple/...` traces back to the original Clarc commits.
+
+The pre-monorepo, daemon-only state is preserved on the [`main`](https://github.com/hlouis/claude-relay/tree/main) branch.
 
 ## License
 
