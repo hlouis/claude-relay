@@ -212,6 +212,10 @@ public actor ClayConnection {
         switch status {
         case .connecting, .reconnecting:
             status = .connected
+        case .live:
+            // The `info` frame raced ahead of this delegate callback —
+            // we're already live. Don't downgrade.
+            break
         default:
             // Stale callback after we already moved on; ignore.
             break
@@ -272,9 +276,16 @@ public actor ClayConnection {
             return
         }
 
-        // First `info` after a `.connected` flips us to `.live`.
-        if case .info = decoded, case .connected = status {
-            status = .live
+        // First `info` flips us to `.live`. We tolerate the race where
+        // the frame arrives on the actor before didOpenWithProtocol —
+        // any non-live, non-terminal state is promoted directly.
+        if case .info = decoded {
+            switch status {
+            case .connecting, .connected, .reconnecting:
+                status = .live
+            case .idle, .live, .failed:
+                break
+            }
         }
         messageContinuation.yield(decoded)
     }
