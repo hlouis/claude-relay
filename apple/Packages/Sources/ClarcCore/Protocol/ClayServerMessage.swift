@@ -14,7 +14,11 @@ public enum ClayServerMessage: Codable, Sendable, Equatable {
         public let version: String
         public let debug: Bool
         public let dangerouslySkipPermissions: Bool?
-        public let osUsers: [ClayOsUser]?
+        /// Boolean feature flag — `true` when the daemon is running in
+        /// multi-OS-user mode. The daemon emits `osUsers || false` so
+        /// the wire format is always a boolean (or absent), never an
+        /// array. See `daemon/lib/project.js:1035`.
+        public let osUsers: Bool?
         public let lanHost: String?
         public let projectCount: Int?
         public let projects: [ClayProjectListEntry]?

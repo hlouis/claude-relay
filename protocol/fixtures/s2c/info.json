@@ -6,9 +6,7 @@
   "version": "1.2.2",
   "debug": false,
   "dangerouslySkipPermissions": false,
-  "osUsers": [
-    { "username": "jane", "uid": 501 }
-  ],
+  "osUsers": false,
   "lanHost": "192.168.1.42",
   "projectCount": 3,
   "projects": [

@@ -145,12 +145,3 @@ public struct ClayProjectListEntry: Codable, Sendable, Equatable {
     }
 }
 
-public struct ClayOsUser: Codable, Sendable, Equatable {
-    public let username: String
-    public let uid: Int?
-
-    public init(username: String, uid: Int? = nil) {
-        self.username = username
-        self.uid = uid
-    }
-}

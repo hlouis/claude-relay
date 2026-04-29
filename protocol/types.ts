@@ -93,12 +93,6 @@ export interface ProjectListEntry {
   [key: string]: unknown;
 }
 
-export interface OsUser {
-  username: string;
-  uid?: number;
-  [key: string]: unknown;
-}
-
 // Tool input is a free-form JSON object whose shape depends on the SDK tool
 // definition. Native clients should NOT model it strictly; surface it as a
 // generic dictionary or render against tool-specific known cases.
@@ -202,7 +196,10 @@ export interface S_Info extends Envelope {
   version: string;
   debug: boolean;
   dangerouslySkipPermissions?: boolean;
-  osUsers?: OsUser[];
+  // Boolean feature flag — true when the daemon is running in
+  // multi-OS-user mode. Mirrors `daemon/lib/project.js:1035`, which
+  // emits the same boolean it received from config.
+  osUsers?: boolean;
   lanHost?: string | null;
   projectCount?: number;
   projects?: ProjectListEntry[];

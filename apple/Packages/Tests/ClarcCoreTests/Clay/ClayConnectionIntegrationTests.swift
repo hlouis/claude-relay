@@ -20,7 +20,7 @@ import Network
 struct ClayConnectionIntegrationTests {
 
     private static let infoJSON = #"""
-    {"type":"info","cwd":"/tmp","slug":"test","project":"test","version":"0.0.0","debug":false,"dangerouslySkipPermissions":false,"lanHost":null,"projectCount":1,"projects":[{"slug":"test","title":null}],"projectOwnerId":null}
+    {"type":"info","cwd":"/tmp","slug":"test","project":"test","version":"0.0.0","debug":false,"dangerouslySkipPermissions":false,"osUsers":false,"lanHost":null,"projectCount":1,"projects":[{"slug":"test","title":null}],"projectOwnerId":null}
     """#
 
     /// Wait until `predicate` is true on a status update, or fail the
