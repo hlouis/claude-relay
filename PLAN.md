@@ -4,11 +4,13 @@
 > **Owner:** TBD. **Target completion:** TBD.
 > **Prereqs done:** `protocol/types.ts`, fixtures, daemon round-trip test,
 > Apple Codable mirror — all green as of `9f1d83b`.
-> **Latest progress:** M1–M7 + M8.5 shipped (see "Progress log" below).
-> 86 Swift tests + 85 daemon tests green. Next: **M9** (wire-up +
-> smoke). **M8 is deferred** — keep the daemon at zero Phase 1
-> changes; revisit only if the M9 smoke exposes a real protocol
-> mismatch.
+> **Latest progress:** M1–M7 + M8.5 + M9 (code) shipped.
+> 86 Swift tests + 85 daemon tests green; `xcodebuild` Debug build
+> green; ClarcApp now boots straight into the Clay flow. **The
+> M9 smoke recording is the only remaining acceptance step** —
+> needs a human at the keyboard with a running daemon. **M8 is
+> deferred** — keep the daemon at zero Phase 1 changes; revisit
+> only if the M9 smoke exposes a real protocol mismatch.
 
 ## 1. Goal
 
@@ -77,13 +79,15 @@ Everything below is deliberately deferred. Don't sneak any of it in.
 | **M6** Session lifecycle UI | ✅ DoD met | `1ac1031` `927cd5b` | 6 commands/lastSeqForResume unit tests; `xcodebuild` Debug build green with sidebar view |
 | **M7** Connect screen + persistence | ✅ DoD met | `0fea4a3` `50aaa16` | 6 store unit tests with in-memory keychain mock; `xcodebuild` Debug build green with connect screen |
 | **M8.5** Clay ChatView fork | ✅ DoD met | `bc98a2d` `0ccd6a0` `b7bf87c` | 2 message-sender unit tests; ChatKit patch (3 types made public, zero behavioural change); `xcodebuild` Debug build green with three new views |
+| **M9** App entry point + smoke | 🟡 code shipped, smoke pending | `4376c1b` `eb6f6f4` `4be71ef` `3e82d3e` | ClayShell triplet coordinator + three-pane ClayMainWindow + ClarcApp entry rewrite + Legacy shim file + `apple/docs/clay-mode.md` smoke guide. Manual smoke + recording (`apple/media/clay-mode-smoke.mov`) is the remaining acceptance step. |
 | R7 fix: `info.osUsers` schema | ✅ | `9e493ec` | Was: `OsUser[]?`. Now: `Bool?`. `OsUser` / `ClayOsUser` deleted. |
 | **M8** Daemon polish | ⏸ deferred | — | See D4 / §M8: Phase 1 ships with zero daemon changes. Revisit only if M9 smoke surfaces a real protocol mismatch. |
 
-### Test totals (post-M8.5)
+### Test totals (post-M9 code drop)
 - Apple: **86 tests / 22 suites / ~3.3 s** (`swift test --package-path apple/Packages`)
 - Daemon: **85 tests** (`node --test daemon/test/*.js`)
 - App target: `xcodebuild -project apple/Clarc.xcodeproj -scheme Clarc build` green
+- Manual smoke against `just daemon-dev`: **pending** (acceptance step)
 
 ### Code locations (Apple)
 
@@ -121,7 +125,19 @@ apple/Clarc/Clay/Views/
 ├── ClayConnectScreen.swift             ← SwiftUI connect form + recents, M7
 ├── ClayMessageBubble.swift             ← ChatItem switch (markdown / tool / etc.), M8.5
 ├── ClayMessageListView.swift           ← scroll list + auto-scroll-to-bottom, M8.5
-└── ClayInputBar.swift                  ← TextField composer + send button, M8.5
+├── ClayInputBar.swift                  ← TextField composer + send button, M8.5
+└── ClayMainWindow.swift                ← three-pane shell + connect sheet + permission sheet, M9
+
+apple/Clarc/Clay/Shell/
+└── ClayShell.swift                     ← @Observable triplet coordinator, M9
+
+apple/Clarc/Legacy/
+└── LegacyShims.swift                   ← FocusedValues.startNewChat + ProjectWindowValue
+                                          shims so legacy AppState/MainView/ProjectWindowView
+                                          still compile until M10 deletes them, M9
+
+apple/Clarc/App/ClarcApp.swift          ← Phase 1 entry point — Clay only, M9
+apple/docs/clay-mode.md                 ← M9 smoke flow guide
 
 apple/Packages/Tests/ClarcCoreTests/Clay/
 ├── ClayConnectionConfigTests.swift          ← 9 cases (URL shapes)
@@ -292,52 +308,106 @@ apple/Packages/Tests/ClarcCoreTests/Clay/
   optimistically (the input bar just clears and waits for the
   echo) but the field is wired so Phase 2 can flip it on.
 
-### What M9 needs to do
+### M9 lessons (key implementation choices)
 
-Per §M9 below, plus these constraints learned during M1–M8.5:
+- **`ClayShell` only flips mode on `.live` and `.failed`.**
+  Transient `.connecting` / `.reconnecting` / `.connected` stay
+  in current mode — the chat view doesn't lose its session on a
+  brief blip. M4 already exposes the fine-grained status via
+  `project.connection` for any badge that wants it.
+- **On `.failed`, the shell tears down the triplet.** Auth
+  failures don't auto-reconnect; transport failures only land
+  here after M1's reconnect loop gave up. A subsequent
+  `connect()` call rebuilds it cleanly. Don't try to reuse the
+  failed `ClayConnection` actor — it's done.
+- **Permission `.sheet(item:)` uses a synthetic Binding.** The
+  setter is a no-op. Dismissal flows through M4's
+  `permission_resolved` / `permission_cancel` handlers, which
+  remove the entry from `pendingPermissions` — SwiftUI tears
+  the sheet down when the binding's getter goes nil. Resume
+  mid-pending stays idempotent.
+- **Legacy code is parked, not deleted.** `apple/Clarc/Legacy/
+  LegacyShims.swift` carries the two declarations
+  (`FocusedValues.startNewChat`, `ProjectWindowValue`) that the
+  legacy MainView / ProjectWindowView reference but the new
+  ClarcApp no longer provides. M10 deletes the shim alongside
+  everything else. Don't fold these into ClarcApp.swift "for
+  cleanliness" — the file boundary makes M10's cleanup a
+  one-line `rm`.
+- **NavigationSplitView 3-column on macOS 15+ works fine** for
+  D3's three-pane layout. No HSplitView / custom resize logic
+  needed; column-width hints
+  (`.navigationSplitViewColumnWidth(min:ideal:max:)`) are
+  enough.
 
-- The data path is complete: M1 connection, M2 dispatcher,
-  M3 outbound, M4 state, M5 permission, M6 sessions,
-  M7 persistence, M8.5 chat views. M9 is pure wiring + a
-  smoke recording.
-- **Zero daemon changes** between M7 close (`50aaa16`) and the
-  smoke recording. If smoke fails because of a daemon-side
-  issue, stop and re-evaluate M8 explicitly — don't silently
-  edit `daemon/`.
-- `ClarcApp` boots into `ClayMainWindow` when a saved connection
-  exists, otherwise covers it with `ClayConnectScreen` (M7) as
-  a sheet/modal.
-- The shell owns one `ClayConnection`, one
-  `ClayMessageDispatcher` (M2) whose receiver is one
-  `ClayProjectState` (M4). Wire `state.connectionRef = connection`
-  so M4's `updateResume` plumbing has somewhere to land.
-- Three-pane layout (D3): left rail stub / `ClaySessionListView`
-  middle / `ClayMessageListView` + `ClayInputBar` right.
-  Permission UX: `.sheet(item:)` bound to
-  `state.activeSessionState?.pendingPermissions.values.first`.
-- Document the smoke flow in `apple/docs/clay-mode.md` and
-  record `apple/media/clay-mode-smoke.mov`.
+### What M9 acceptance still needs
+
+The code is in tree (`4376c1b` `eb6f6f4` `4be71ef` `3e82d3e`)
+and `xcodebuild` is green. The remaining acceptance tasks are
+all manual:
+
+1. Open `apple/Clarc.xcodeproj` in Xcode and run (⌘R).
+2. Run `just daemon-dev` in another terminal; copy the URL/PIN
+   from its log.
+3. Walk through the seven steps in `apple/docs/clay-mode.md`.
+4. If any step fails because of a daemon-side issue, **stop and
+   re-evaluate M8 explicitly** — do not silently edit `daemon/`.
+   Reopening M8 requires a deliberate decision and a PLAN
+   amendment.
+5. Capture a screen recording at
+   `apple/media/clay-mode-smoke.mov`.
+6. Update §3a status from "🟡 code shipped, smoke pending" to
+   "✅ DoD met" with the recording sha.
+
+### What M10 needs to do (the final cleanup)
+
+After M9 smoke is signed off:
+
+- Delete the entire CLI-subprocess mode per §M10 below. The
+  parked legacy code is concentrated in:
+  - `apple/Clarc/App/AppState.swift` (~2167 LOC)
+  - `apple/Clarc/Services/ClaudeService.swift`,
+    `PermissionServer.swift` (CLI process driver + hook server)
+  - `apple/Clarc/Views/MainView.swift`,
+    `ProjectWindowView.swift`, `SettingsView.swift`,
+    `Sidebar/`, `Onboarding/`, `Permission/`, `Terminal/`
+  - `apple/Clarc/Legacy/LegacyShims.swift` (the M9 shim)
+  - The Clay flow's `import ClarcChatKit` reuses survive: M10
+    only deletes `ChatBridge.swift`, `ChatView.swift`,
+    `MessageBubble.swift`, `MessageListView.swift`,
+    `InputBarView.swift`, `SlashCommand*.swift`,
+    `ShortcutManagerView.swift`, `StatusLineView.swift`,
+    `AttachmentPreviewItem.swift`, `WebPreviewButton.swift`,
+    `FileDiffView.swift`. Keep `MarkdownView.swift`,
+    `BubbleStyle.swift`, `TypingDotsView.swift` — Clay views
+    depend on them. `ToolResultView.swift` and
+    `AskUserQuestionView.swift` are deletable (Clay didn't
+    fork them).
+- Audit `Models/*.swift`: `ChatMessage.swift`,
+  `Attachment.swift`, etc. die. `JSONValue.swift`,
+  `ClaySessionState.swift`, etc. survive.
+- After deletion: `xcodebuild test` green and a manual
+  re-run of the §9 smoke flow.
 
 ### How to resume in a new session
 
-1. `git log --oneline | head -10` to see the commit chain.
+1. `git log --oneline | head -15` to see the commit chain (M9
+   spans four commits).
 2. `swift test --package-path apple/Packages` should print 86 tests
-   passing — if it doesn't, fix that before touching M9.
+   passing.
 3. `xcodebuild -project apple/Clarc.xcodeproj -scheme Clarc \
-   CODE_SIGNING_ALLOWED=NO build` should succeed. (Metal toolchain
-   may need `xcodebuild -downloadComponent MetalToolchain` on a
-   fresh Xcode install.)
+   CODE_SIGNING_ALLOWED=NO build` should succeed.
 4. `node --test daemon/test/*.js` should print 85 tests passing.
-   **The daemon must stay at zero Phase 1 changes** — if you find
-   yourself editing under `daemon/`, stop and re-read D4 above.
-5. Read this Progress log + §M9 below.
-6. M9 is wiring, not new code paths. Build `ClayMainWindow`
-   (three panes: stub left rail, `ClaySessionListView`,
-   `ClayMessageListView` + `ClayInputBar`) and one
-   `.sheet(item:)` for the permission modal. Create one
-   `ClayConnection` + `ClayMessageDispatcher` + `ClayProjectState`
-   triplet on connect. Take the smoke recording before declaring
-   M9 done.
+   **The daemon must stay at zero Phase 1 changes** between M7
+   close (`50aaa16`) and the smoke sign-off — if you find
+   yourself editing under `daemon/`, stop and re-read D4.
+5. **Run the smoke flow** per `apple/docs/clay-mode.md`. Open
+   `apple/Clarc.xcodeproj` in Xcode, ⌘R, in a separate terminal
+   `just daemon-dev`, paste the URL into the connect screen, walk
+   the seven steps. Record `apple/media/clay-mode-smoke.mov`.
+6. If smoke passes: flip M9 to ✅ in §3a, then start M10.
+7. If smoke fails because of a daemon issue: stop, re-evaluate
+   M8 explicitly, amend PLAN before touching `daemon/`.
 
 ## 4. Architecture overview
 
