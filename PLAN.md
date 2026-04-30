@@ -4,9 +4,8 @@
 > **Owner:** TBD. **Target completion:** TBD.
 > **Prereqs done:** `protocol/types.ts`, fixtures, daemon round-trip test,
 > Apple Codable mirror — all green as of `9f1d83b`.
-> **Latest progress:** M1 / M2 / M3 / M4 / M5 shipped (see "Progress log" below).
-> 72 Swift tests + 85 daemon tests green. Next: **M6** (session lifecycle UI)
-> or **M7** (connect screen) — independent, can run in parallel.
+> **Latest progress:** M1 / M2 / M3 / M4 / M5 / M6 shipped (see "Progress log" below).
+> 78 Swift tests + 85 daemon tests green. Next: **M7** (connect screen + persistence).
 
 ## 1. Goal
 
@@ -67,10 +66,11 @@ Everything below is deliberately deferred. Don't sneak any of it in.
 | **M3** Outbound encoder | ✅ DoD met | `fd3e431` | 12 helper-vs-c2s-fixture snapshots + coverage check |
 | **M4** ClayProjectState (chat state mirror) | ✅ DoD met | `13aa724` `5d70aa3` `c4a7bd9` `971fc0f` | 9 SessionState unit tests + 6 ProjectState integration tests (incl. R5 regression and history↔live equivalence) |
 | **M5** Permission flow UI | ✅ DoD met | `bf1f1ed` `2d080fc` | 6 responder/plan-tool unit tests; `xcodebuild` Debug build of Clarc target green with the new view |
+| **M6** Session lifecycle UI | ✅ DoD met | `1ac1031` `927cd5b` | 6 commands/lastSeqForResume unit tests; `xcodebuild` Debug build green with sidebar view |
 | R7 fix: `info.osUsers` schema | ✅ | `9e493ec` | Was: `OsUser[]?`. Now: `Bool?`. `OsUser` / `ClayOsUser` deleted. |
 
-### Test totals (post-M5)
-- Apple: **72 tests / 18 suites / ~3.3 s** (`swift test --package-path apple/Packages`)
+### Test totals (post-M6)
+- Apple: **78 tests / 20 suites / ~3.3 s** (`swift test --package-path apple/Packages`)
 - Daemon: **85 tests** (`node --test daemon/test/*.js`)
 - App target: `xcodebuild -project apple/Clarc.xcodeproj -scheme Clarc build` green
 
@@ -88,14 +88,16 @@ apple/Packages/Sources/ClarcCore/Clay/
 ├── Outbound/
 │   ├── ClayOutbound.swift              ← static factories, M3
 │   ├── ClayConnection+Outbound.swift   ← async-throws send helpers, M3
-│   └── ClayPermissionResponder.swift   ← protocol + isPlanTool extension, M5
+│   ├── ClayPermissionResponder.swift   ← protocol + isPlanTool extension, M5
+│   └── ClaySessionCommands.swift       ← protocol + lastSeqForResume extension, M6
 └── State/
     ├── ClayChatItem.swift              ← chat-stream enum + 7 payload structs, M4
     ├── ClaySessionState.swift          ← per-session value type + coalesce mutators, M4
     └── ClayProjectState.swift          ← @MainActor @Observable receiver, big-switch apply, M4
 
 apple/Clarc/Clay/Views/
-└── ClayPermissionModal.swift           ← SwiftUI permission modal, M5
+├── ClayPermissionModal.swift           ← SwiftUI permission modal, M5
+└── ClaySessionListView.swift           ← SwiftUI session sidebar, M6
 
 apple/Packages/Tests/ClarcCoreTests/Clay/
 ├── ClayConnectionConfigTests.swift          ← 9 cases (URL shapes)
@@ -108,6 +110,7 @@ apple/Packages/Tests/ClarcCoreTests/Clay/
 ├── ClaySessionStateTests.swift              ← 9 cases (coalesce / permissions / resume cursor)
 ├── ClayProjectStateTests.swift              ← 6 cases (synthetic stream / history equivalence / R5 replay)
 ├── ClayPermissionResponderTests.swift       ← 6 cases (isPlanTool / generic + plan dispatch / wire shape)
+├── ClaySessionCommandsTests.swift           ← 6 cases (lastSeqForResume / pass-through / target cursor / wire shape)
 └── Support/
     ├── WebSocketMockServer.swift  ← NWListener + NWProtocolWebSocket
     └── MockDaemonServer.swift     ← Hand-rolled HTTP/1.1 + RFC 6455 WS
@@ -193,33 +196,46 @@ apple/Packages/Tests/ClarcCoreTests/Clay/
   `appendPermissionRequestPending` ensures a re-delivered request
   doesn't duplicate, and SwiftUI re-binds the same view to the same
   item without flicker.
+- **M6 sidebar trusts the daemon's broadcast.** No optimistic
+  state. Tap → send → daemon broadcasts `session_switched` /
+  `session_list` → M4 lands them → SwiftUI re-renders. Don't be
+  tempted to pre-flip `activeSessionId` on tap.
+- **`switch_session` carries the TARGET session's `lastSeq`.**
+  Easy to confuse with the active session's. `ClayProjectState
+  .lastSeqForResume(sessionId:)` is the canonical lookup; use it
+  rather than reading `sessionStates[id]?.lastSeq` inline so the
+  rule stays in one tested place.
+- **Daemon picks the replacement on delete.** `sessions.js:411-419`
+  selects the most-recently-active sibling, or creates a new
+  session if the deleted one was the last. The client just sends
+  `delete_session` and waits for the resulting `session_switched`
+  + `session_list`. Don't second-guess this on the client.
 
-### What M6 / M7 need to do
+### What M7 needs to do
 
-These are independent and can be tackled in either order or in
-parallel. M6 and M7 both depend only on the M1–M5 stack that's
-already in tree.
+Per §M7 below, plus these constraints learned during M1–M6:
 
-**M6 — Session lifecycle UI** (per §M6 below):
-- Sidebar list bound to `ClayProjectState.sessions`. Selection
-  drives `activeSessionId` and emits `switch_session` with the
-  *target* session's `lastSeq` (read from `sessionStates[target]?
-  .lastSeq`) for incremental replay.
-- New / delete / rename go through the M3 helpers
-  (`newSession`, `deleteSession`, `renameSession`); no new encoders.
-- Live updates from the daemon arrive as `session_list` events that
-  M4 already lands into `sessions`. The view just observes.
-
-**M7 — Connect screen + persistence** (per §M7 below):
 - Two-field form (`wss://host:port/p/<slug>/ws` + token).
-  `ClayConnectionConfig.parse` (M1) already validates the URL shape;
-  reuse it.
+  `ClayConnectionConfig.parse` (M1) already validates the URL
+  shape; reuse it. Don't invent a second URL parser.
 - Persistence layer: URL list in `UserDefaults`, token per URL in
-  Keychain (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`). New file
-  suggested: `apple/Clarc/Clay/Services/ClayConnectionsStore.swift`.
-- On Connect: instantiate `ClayConnection`, hook a
-  `ClayProjectState` (M4) as the receiver via `ClayMessageDispatcher`,
-  and hand both up to whatever shell M9 will build.
+  Keychain (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`). New
+  file suggested:
+  `apple/Clarc/Clay/Services/ClayConnectionsStore.swift`.
+- On Connect: instantiate `ClayConnection`, attach a
+  `ClayMessageDispatcher` (M2) whose receiver is a fresh
+  `ClayProjectState` (M4). Wire the project state's
+  `connectionRef` so M4's `updateResume` plumbing has somewhere
+  to land. Hand both up to whatever shell M9 will build.
+- Auth failure: M1 already maps `GET /info` 401 to
+  `ClayConnectionFailure.unauthorized` and stops the reconnect
+  loop. Surface that as the inline error in the connect screen;
+  don't add a new failure code.
+- Mirror M5/M6's testing pattern: a narrow protocol over the
+  Keychain operations (`save`, `read`, `delete`) with a
+  recording mock; the form view itself is exercised by
+  `#Preview` and manual smoke. Don't bring in a Keychain test
+  harness for a four-method surface.
 
 ### Hidden cost not yet milestoned
 
@@ -237,16 +253,16 @@ explicitly out of scope per §2. Estimate: 0.5–1 day. Track this as
 ### How to resume in a new session
 
 1. `git log --oneline | head -10` to see the commit chain.
-2. `swift test --package-path apple/Packages` should print 72 tests
-   passing — if it doesn't, fix that before touching M6/M7.
+2. `swift test --package-path apple/Packages` should print 78 tests
+   passing — if it doesn't, fix that before touching M7.
 3. `xcodebuild -project apple/Clarc.xcodeproj -scheme Clarc \
    CODE_SIGNING_ALLOWED=NO build` should succeed. (Metal toolchain
    may need `xcodebuild -downloadComponent MetalToolchain` on a
    fresh Xcode install.)
-4. Read this Progress log + §M6 / §M7 below.
-5. Pick M6 or M7. M6 is more visible (sidebar populates from a real
-   daemon); M7 is more self-contained (no UI binding to existing
-   state, just a form). Either is fine.
+4. Read this Progress log + §M7 below.
+5. Start with the persistence layer (`ClayConnectionsStore`) — the
+   form is trivial once read/save/delete are in place. Reuse
+   `ClayConnectionConfig.parse` for URL validation.
 
 ## 4. Architecture overview
 
