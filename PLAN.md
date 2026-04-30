@@ -4,8 +4,8 @@
 > **Owner:** TBD. **Target completion:** TBD.
 > **Prereqs done:** `protocol/types.ts`, fixtures, daemon round-trip test,
 > Apple Codable mirror — all green as of `9f1d83b`.
-> **Latest progress:** M1 / M2 / M3 shipped (see "Progress log" below).
-> 51 Swift tests + 85 daemon tests green. Next: **M4**.
+> **Latest progress:** M1 / M2 / M3 / M4 shipped (see "Progress log" below).
+> 66 Swift tests + 85 daemon tests green. Next: **M5** (permission flow UI).
 
 ## 1. Goal
 
@@ -64,10 +64,11 @@ Everything below is deliberately deferred. Don't sneak any of it in.
 | **M1** WebSocket connection actor | ✅ DoD met | `d7f930d` `6e40799` `4304f7c` | All 6 PLAN test cases covered (see §M1 test gate) |
 | **M2** Inbound dispatcher | ✅ DoD met | `f128246` | Replay-all-29-s2c-fixtures + 3 lifecycle cases |
 | **M3** Outbound encoder | ✅ DoD met | `fd3e431` | 12 helper-vs-c2s-fixture snapshots + coverage check |
+| **M4** ClayProjectState (chat state mirror) | ✅ DoD met | `13aa724` `5d70aa3` `c4a7bd9` `971fc0f` | 9 SessionState unit tests + 6 ProjectState integration tests (incl. R5 regression and history↔live equivalence) |
 | R7 fix: `info.osUsers` schema | ✅ | `9e493ec` | Was: `OsUser[]?`. Now: `Bool?`. `OsUser` / `ClayOsUser` deleted. |
 
-### Test totals (post-M3)
-- Apple: **51 tests / 10 suites / ~3.3 s** (`swift test --package-path apple/Packages`)
+### Test totals (post-M4)
+- Apple: **66 tests / 16 suites / ~3.3 s** (`swift test --package-path apple/Packages`)
 - Daemon: **85 tests** (`node --test daemon/test/*.js`)
 
 ### Code locations (Apple)
@@ -81,9 +82,13 @@ apple/Packages/Sources/ClarcCore/Clay/
 ├── Dispatcher/
 │   ├── ClayMessageDispatcher.swift  ← actor pump, M2
 │   └── ClayMessageReceiver.swift    ← single-method protocol, M2
-└── Outbound/
-    ├── ClayOutbound.swift           ← static factories, M3
-    └── ClayConnection+Outbound.swift ← async-throws send helpers, M3
+├── Outbound/
+│   ├── ClayOutbound.swift           ← static factories, M3
+│   └── ClayConnection+Outbound.swift ← async-throws send helpers, M3
+└── State/
+    ├── ClayChatItem.swift           ← chat-stream enum + 7 payload structs, M4
+    ├── ClaySessionState.swift       ← per-session value type + coalesce mutators, M4
+    └── ClayProjectState.swift       ← @MainActor @Observable receiver, big-switch apply, M4
 
 apple/Packages/Tests/ClarcCoreTests/Clay/
 ├── ClayConnectionConfigTests.swift          ← 9 cases (URL shapes)
@@ -93,6 +98,8 @@ apple/Packages/Tests/ClarcCoreTests/Clay/
 ├── ClayConnectionAuthAndResumeTests.swift   ← 2 cases (HTTP+WS unified mock)
 ├── ClayMessageDispatcherTests.swift         ← 4 cases (incl. 29-fixture replay)
 ├── ClayOutboundTests.swift                  ← 12 helper snapshots + coverage
+├── ClaySessionStateTests.swift              ← 9 cases (coalesce / permissions / resume cursor)
+├── ClayProjectStateTests.swift              ← 6 cases (synthetic stream / history equivalence / R5 replay)
 └── Support/
     ├── WebSocketMockServer.swift  ← NWListener + NWProtocolWebSocket
     └── MockDaemonServer.swift     ← Hand-rolled HTTP/1.1 + RFC 6455 WS
@@ -123,43 +130,70 @@ apple/Packages/Tests/ClarcCoreTests/Clay/
   messages absent from `protocol/types.ts` still need an audit pass
   before M8. Currently dropped by `ClayConnection.handleFrame`'s
   forward-compat decode path.
+- **M4 chose `ClarcCore` for state types** (the default option A from
+  the previous session). `Observation` is available on macOS 15+ and
+  no UI dependency was introduced. Don't split into a new package
+  unless iOS/iPadOS work in Phase 2 forces it.
+- **`ClaySessionState` is a struct, not a class.** `ClayProjectState`
+  stores it in `[Int: ClaySessionState]` and writes the whole struct
+  back per mutation. This guarantees `@Observable` notifies on every
+  apply and keeps "one writer" ownership unambiguous. Don't refactor
+  to class without a concrete reason.
+- **delta / thinking coalescing has no `isOpen` flag.** The trailing
+  element of `messages` IS the open streaming slot. A `tool_*` (or any
+  non-text event) between deltas naturally closes the previous text
+  item because `messages.last` is no longer `.assistantText`. Adding a
+  flag would re-introduce the special case Linus said to delete.
+- **`recordSeq` returns `nil` when the session is in `.loading`
+  history mode.** This is how history replay shares the same big
+  switch as live streaming without polluting the resume cursor.
+  `ClayProjectState.apply` only calls `connection.updateResume` when
+  `recordSeq` returns a non-nil value.
+- **`updateResume` is fired via a detached `Task`** at the end of
+  `apply` (not awaited inline). Reason: `apply` runs on `MainActor`
+  and `ClayConnection` is its own actor — awaiting in-line would
+  serialize every UI update behind a network actor hop.
+- **`message_uuid` is not bound to a chat item today.** We extract its
+  `seq` for the resume cursor and otherwise drop it. If/when we need
+  to round-trip uuids back to the daemon, add a side index — don't
+  retro-fit `UserItem.id` to be the message_uuid.
 
-### What M4 needs to do
+### What M5 needs to do
 
-Per §M4 below, plus these constraints learned during M1–M3:
+Per §M5 below, plus these constraints learned during M1–M4:
 
-- M4 owns the single `switch message` over `ClayServerMessage` and
-  applies state mutations. It conforms to `ClayMessageReceiver` (M2).
-- M4 owns `lastSeq` tracking and calls
-  `ClayConnection.updateResume(sessionId:lastSeq:)` per the web client
-  rule (`lastSeq = msg.seq + 1` after every seq-bearing message).
-  M1 already has the plumbing — just feed it.
-- M4's `ClayChatItem` enum MUST coalesce `delta` events into a single
-  growing fragment. See PLAN R5 for the reconnect-replay edge case
-  the test suite must cover.
-- Open question for the next session: package boundary. Option A keep
-  it in `ClarcCore` (already imports `Foundation` only — adding
-  `Observation` is fine, the package builds for macOS 15+ which has
-  it); Option B split into a new `ClayClient` package. Default to A
-  unless a concrete reason to split appears.
-- MainActor isolation boundary: the dispatcher runs on its own task
-  and calls `await receiver.receive(_:)`. If `ClayProjectState` is
-  `@MainActor @Observable`, the `receive` method just hops to the
-  main actor — fine. Don't introduce a separate "model actor" — the
-  hop cost is trivial and the simpler ownership wins.
+- M4 already lands `permission_request` / `permission_request_pending`
+  / `permission_resolved` / `permission_cancel` into
+  `ClaySessionState.pendingPermissions` and as `.permission` items in
+  `messages`. M5 only adds the **UI** + the **outbound response wiring**
+  — no state machine work needed.
+- The modal should drive off `pendingPermissions` (a dictionary keyed
+  by `requestId`), not scan `messages` for the latest pending item.
+  This is what makes resume idempotent: if the daemon re-emits
+  `permission_request_pending` after a reconnect, M4 already drops
+  the duplicate via the dictionary check.
+- For the outbound side use the existing M3 helper
+  (`ClayOutbound.permissionResponse(...)` /
+  `ClayConnection.sendPermissionResponse(...)`); don't write a new
+  encoder.
+- `ClayPermissionDecision` has 5 cases (`allow`, `allowAlways`, `deny`,
+  `allowAcceptEdits`, `allowClearContext`). The plan-tool-only cases
+  should be gated on `toolName`, not surfaced unconditionally.
 
 ### How to resume in a new session
 
 1. `git log --oneline | head -10` to see the commit chain.
-2. `swift test --package-path apple/Packages` should print 51 tests
-   passing — if it doesn't, fix that before touching M4.
-3. Read this Progress log + §M4 below.
-4. Start with `ClayChatItem` (data shape), then `ClaySessionState`
-   (per-session container), then `ClayProjectState` (top-level
-   `@Observable` owning sessions + connection status mirror).
-5. The synthetic-stream test described in §M4's test gate is the
-   primary acceptance gate — write it concurrently with the state
-   types so the design pressure is in both directions.
+2. `swift test --package-path apple/Packages` should print 66 tests
+   passing — if it doesn't, fix that before touching M5.
+3. Read this Progress log + §M5 below.
+4. M5 is UI work — the data path is done. Start by deciding whether
+   to fork the existing `Views/Permission/` modal or build a Clay-
+   specific one (PLAN R3 says "treat existing as starting style, not
+   a contract").
+5. Wire the modal to `ClayProjectState.activeSessionState?.pendingPermissions`
+   and call `ClayConnection.sendPermissionResponse(...)` on user
+   decision. The modal dismisses when the dictionary entry disappears
+   (M4 removes it on `permission_resolved` / `permission_cancel`).
 
 ## 4. Architecture overview
 
