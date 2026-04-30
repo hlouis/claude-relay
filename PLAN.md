@@ -4,8 +4,9 @@
 > **Owner:** TBD. **Target completion:** TBD.
 > **Prereqs done:** `protocol/types.ts`, fixtures, daemon round-trip test,
 > Apple Codable mirror — all green as of `9f1d83b`.
-> **Latest progress:** M1 / M2 / M3 / M4 shipped (see "Progress log" below).
-> 66 Swift tests + 85 daemon tests green. Next: **M5** (permission flow UI).
+> **Latest progress:** M1 / M2 / M3 / M4 / M5 shipped (see "Progress log" below).
+> 72 Swift tests + 85 daemon tests green. Next: **M6** (session lifecycle UI)
+> or **M7** (connect screen) — independent, can run in parallel.
 
 ## 1. Goal
 
@@ -65,11 +66,13 @@ Everything below is deliberately deferred. Don't sneak any of it in.
 | **M2** Inbound dispatcher | ✅ DoD met | `f128246` | Replay-all-29-s2c-fixtures + 3 lifecycle cases |
 | **M3** Outbound encoder | ✅ DoD met | `fd3e431` | 12 helper-vs-c2s-fixture snapshots + coverage check |
 | **M4** ClayProjectState (chat state mirror) | ✅ DoD met | `13aa724` `5d70aa3` `c4a7bd9` `971fc0f` | 9 SessionState unit tests + 6 ProjectState integration tests (incl. R5 regression and history↔live equivalence) |
+| **M5** Permission flow UI | ✅ DoD met | `bf1f1ed` `2d080fc` | 6 responder/plan-tool unit tests; `xcodebuild` Debug build of Clarc target green with the new view |
 | R7 fix: `info.osUsers` schema | ✅ | `9e493ec` | Was: `OsUser[]?`. Now: `Bool?`. `OsUser` / `ClayOsUser` deleted. |
 
-### Test totals (post-M4)
-- Apple: **66 tests / 16 suites / ~3.3 s** (`swift test --package-path apple/Packages`)
+### Test totals (post-M5)
+- Apple: **72 tests / 18 suites / ~3.3 s** (`swift test --package-path apple/Packages`)
 - Daemon: **85 tests** (`node --test daemon/test/*.js`)
+- App target: `xcodebuild -project apple/Clarc.xcodeproj -scheme Clarc build` green
 
 ### Code locations (Apple)
 
@@ -83,12 +86,16 @@ apple/Packages/Sources/ClarcCore/Clay/
 │   ├── ClayMessageDispatcher.swift  ← actor pump, M2
 │   └── ClayMessageReceiver.swift    ← single-method protocol, M2
 ├── Outbound/
-│   ├── ClayOutbound.swift           ← static factories, M3
-│   └── ClayConnection+Outbound.swift ← async-throws send helpers, M3
+│   ├── ClayOutbound.swift              ← static factories, M3
+│   ├── ClayConnection+Outbound.swift   ← async-throws send helpers, M3
+│   └── ClayPermissionResponder.swift   ← protocol + isPlanTool extension, M5
 └── State/
-    ├── ClayChatItem.swift           ← chat-stream enum + 7 payload structs, M4
-    ├── ClaySessionState.swift       ← per-session value type + coalesce mutators, M4
-    └── ClayProjectState.swift       ← @MainActor @Observable receiver, big-switch apply, M4
+    ├── ClayChatItem.swift              ← chat-stream enum + 7 payload structs, M4
+    ├── ClaySessionState.swift          ← per-session value type + coalesce mutators, M4
+    └── ClayProjectState.swift          ← @MainActor @Observable receiver, big-switch apply, M4
+
+apple/Clarc/Clay/Views/
+└── ClayPermissionModal.swift           ← SwiftUI permission modal, M5
 
 apple/Packages/Tests/ClarcCoreTests/Clay/
 ├── ClayConnectionConfigTests.swift          ← 9 cases (URL shapes)
@@ -100,6 +107,7 @@ apple/Packages/Tests/ClarcCoreTests/Clay/
 ├── ClayOutboundTests.swift                  ← 12 helper snapshots + coverage
 ├── ClaySessionStateTests.swift              ← 9 cases (coalesce / permissions / resume cursor)
 ├── ClayProjectStateTests.swift              ← 6 cases (synthetic stream / history equivalence / R5 replay)
+├── ClayPermissionResponderTests.swift       ← 6 cases (isPlanTool / generic + plan dispatch / wire shape)
 └── Support/
     ├── WebSocketMockServer.swift  ← NWListener + NWProtocolWebSocket
     └── MockDaemonServer.swift     ← Hand-rolled HTTP/1.1 + RFC 6455 WS
@@ -157,43 +165,88 @@ apple/Packages/Tests/ClarcCoreTests/Clay/
   `seq` for the resume cursor and otherwise drop it. If/when we need
   to round-trip uuids back to the daemon, add a side index — don't
   retro-fit `UserItem.id` to be the message_uuid.
+- **M5 plan-tool detection: `toolName == "ExitPlanMode"`, full stop.**
+  `EnterPlanMode` does not require permission. There is no "plan tool
+  family" — just one name. `ClayChatItem.PermissionItem.isPlanTool`
+  is the canonical check; don't sprinkle string compares elsewhere.
+- **M5 plan permission has FOUR buttons, not five.** Web client's
+  `renderPlanPermission`: Clear Context / Auto-accept Edits / Manually
+  Approve / Reject (mapping to `allow_clear_context`,
+  `allow_accept_edits`, `allow`, `deny`). `allow_always` does not
+  appear in plan mode.
+- **M5 does not stitch `planContent`.** The daemon's
+  `pending.toolInput.planFilePath` fallback is sufficient for
+  `allow_clear_context` to work. Phase 2 enhancement: watch
+  `Write`/`Edit` tool calls whose path matches the daemon's plan
+  file path (cf. `daemon/lib/public/app.js:3506`-3520) and stitch
+  the resulting markdown into `planContent` on the response.
+- **`ClayPermissionResponder` is intentionally narrow.** One method,
+  exactly matching the M3 helper. Don't extend it — for any other
+  outbound traffic, take a `ClayConnection` directly. The protocol
+  exists solely so the modal can be unit-tested with a recording
+  mock.
+- **The modal owns no dismissal state.** It binds to a single
+  `PermissionItem` from the parent. When the daemon echoes
+  `permission_resolved` / `permission_cancel`, M4 drops the entry
+  from `pendingPermissions`, and the parent's `.sheet(item:)` tears
+  the view down. Resume mid-pending works for free: M4's idempotent
+  `appendPermissionRequestPending` ensures a re-delivered request
+  doesn't duplicate, and SwiftUI re-binds the same view to the same
+  item without flicker.
 
-### What M5 needs to do
+### What M6 / M7 need to do
 
-Per §M5 below, plus these constraints learned during M1–M4:
+These are independent and can be tackled in either order or in
+parallel. M6 and M7 both depend only on the M1–M5 stack that's
+already in tree.
 
-- M4 already lands `permission_request` / `permission_request_pending`
-  / `permission_resolved` / `permission_cancel` into
-  `ClaySessionState.pendingPermissions` and as `.permission` items in
-  `messages`. M5 only adds the **UI** + the **outbound response wiring**
-  — no state machine work needed.
-- The modal should drive off `pendingPermissions` (a dictionary keyed
-  by `requestId`), not scan `messages` for the latest pending item.
-  This is what makes resume idempotent: if the daemon re-emits
-  `permission_request_pending` after a reconnect, M4 already drops
-  the duplicate via the dictionary check.
-- For the outbound side use the existing M3 helper
-  (`ClayOutbound.permissionResponse(...)` /
-  `ClayConnection.sendPermissionResponse(...)`); don't write a new
-  encoder.
-- `ClayPermissionDecision` has 5 cases (`allow`, `allowAlways`, `deny`,
-  `allowAcceptEdits`, `allowClearContext`). The plan-tool-only cases
-  should be gated on `toolName`, not surfaced unconditionally.
+**M6 — Session lifecycle UI** (per §M6 below):
+- Sidebar list bound to `ClayProjectState.sessions`. Selection
+  drives `activeSessionId` and emits `switch_session` with the
+  *target* session's `lastSeq` (read from `sessionStates[target]?
+  .lastSeq`) for incremental replay.
+- New / delete / rename go through the M3 helpers
+  (`newSession`, `deleteSession`, `renameSession`); no new encoders.
+- Live updates from the daemon arrive as `session_list` events that
+  M4 already lands into `sessions`. The view just observes.
+
+**M7 — Connect screen + persistence** (per §M7 below):
+- Two-field form (`wss://host:port/p/<slug>/ws` + token).
+  `ClayConnectionConfig.parse` (M1) already validates the URL shape;
+  reuse it.
+- Persistence layer: URL list in `UserDefaults`, token per URL in
+  Keychain (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`). New file
+  suggested: `apple/Clarc/Clay/Services/ClayConnectionsStore.swift`.
+- On Connect: instantiate `ClayConnection`, hook a
+  `ClayProjectState` (M4) as the receiver via `ClayMessageDispatcher`,
+  and hand both up to whatever shell M9 will build.
+
+### Hidden cost not yet milestoned
+
+Before M9 can run smoke, **a Clay-specific ChatView must exist**.
+PLAN R2 mandates forking from `ClarcChatKit` rather than reusing
+the legacy ChatView (which binds to `ChatMessage`, not
+`ClayChatItem`). Reusable as-is from `ClarcChatKit`: `MarkdownView`,
+`ToolResultView`, `BubbleStyle`, `TypingDotsView`,
+`AskUserQuestionView`. Need to write fresh:
+`ClayMessageListView` (~150 LOC), `ClayMessageBubble` (~200 LOC),
+`ClayInputBar` (~80 LOC) — slash commands and attachments are
+explicitly out of scope per §2. Estimate: 0.5–1 day. Track this as
+**M8.5** when M9 starts; until then it's documented here.
 
 ### How to resume in a new session
 
 1. `git log --oneline | head -10` to see the commit chain.
-2. `swift test --package-path apple/Packages` should print 66 tests
-   passing — if it doesn't, fix that before touching M5.
-3. Read this Progress log + §M5 below.
-4. M5 is UI work — the data path is done. Start by deciding whether
-   to fork the existing `Views/Permission/` modal or build a Clay-
-   specific one (PLAN R3 says "treat existing as starting style, not
-   a contract").
-5. Wire the modal to `ClayProjectState.activeSessionState?.pendingPermissions`
-   and call `ClayConnection.sendPermissionResponse(...)` on user
-   decision. The modal dismisses when the dictionary entry disappears
-   (M4 removes it on `permission_resolved` / `permission_cancel`).
+2. `swift test --package-path apple/Packages` should print 72 tests
+   passing — if it doesn't, fix that before touching M6/M7.
+3. `xcodebuild -project apple/Clarc.xcodeproj -scheme Clarc \
+   CODE_SIGNING_ALLOWED=NO build` should succeed. (Metal toolchain
+   may need `xcodebuild -downloadComponent MetalToolchain` on a
+   fresh Xcode install.)
+4. Read this Progress log + §M6 / §M7 below.
+5. Pick M6 or M7. M6 is more visible (sidebar populates from a real
+   daemon); M7 is more self-contained (no UI binding to existing
+   state, just a form). Either is fine.
 
 ## 4. Architecture overview
 
