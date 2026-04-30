@@ -2,9 +2,11 @@ import SwiftUI
 import ClarcCore
 
 /// Animated pulse-ring indicator with gradient rings that ripple outward.
-struct PulseRingView: View {
+public struct PulseRingView: View {
     private let size: CGFloat = 18
     private let ringCount = 3
+
+    public init() {}
 
     private let gradient = AngularGradient(
         colors: [
@@ -18,7 +20,7 @@ struct PulseRingView: View {
 
     @State private var animated = false
 
-    var body: some View {
+    public var body: some View {
         ZStack {
             // Center dot
             Circle()

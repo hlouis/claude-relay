@@ -3,7 +3,7 @@ import ClarcCore
 
 // MARK: - Bubble Variant
 
-enum BubbleVariant {
+public enum BubbleVariant {
     case user
     case assistant
     case error
@@ -13,16 +13,20 @@ enum BubbleVariant {
 
 // MARK: - Bubble Style Modifier
 
-struct BubbleStyle: ViewModifier {
-    let variant: BubbleVariant
+public struct BubbleStyle: ViewModifier {
+    public let variant: BubbleVariant
+
+    public init(variant: BubbleVariant) {
+        self.variant = variant
+    }
 
     // MARK: - Shared Constants
 
-    static let contentPadding = EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
-    static let toolPadding = EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)
-    static let borderWidth: CGFloat = 0.5
+    public static let contentPadding = EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    public static let toolPadding = EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)
+    public static let borderWidth: CGFloat = 0.5
 
-    func body(content: Content) -> some View {
+    public func body(content: Content) -> some View {
         content
             .padding(padding)
             .background(background, in: shape)
@@ -96,7 +100,7 @@ struct BubbleStyle: ViewModifier {
 // MARK: - View Extension
 
 extension View {
-    func bubbleStyle(_ variant: BubbleVariant) -> some View {
+    public func bubbleStyle(_ variant: BubbleVariant) -> some View {
         modifier(BubbleStyle(variant: variant))
     }
 }
