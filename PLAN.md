@@ -4,8 +4,9 @@
 > **Owner:** TBD. **Target completion:** TBD.
 > **Prereqs done:** `protocol/types.ts`, fixtures, daemon round-trip test,
 > Apple Codable mirror — all green as of `9f1d83b`.
-> **Latest progress:** M1 / M2 / M3 / M4 / M5 / M6 shipped (see "Progress log" below).
-> 78 Swift tests + 85 daemon tests green. Next: **M7** (connect screen + persistence).
+> **Latest progress:** M1 / M2 / M3 / M4 / M5 / M6 / M7 shipped (see "Progress log" below).
+> 84 Swift tests + 85 daemon tests green. Next: **M8** (daemon-side polish:
+> add `protocolVersion: "1"` to `info`, plus a Tier-1 emit-coverage test).
 
 ## 1. Goal
 
@@ -67,10 +68,11 @@ Everything below is deliberately deferred. Don't sneak any of it in.
 | **M4** ClayProjectState (chat state mirror) | ✅ DoD met | `13aa724` `5d70aa3` `c4a7bd9` `971fc0f` | 9 SessionState unit tests + 6 ProjectState integration tests (incl. R5 regression and history↔live equivalence) |
 | **M5** Permission flow UI | ✅ DoD met | `bf1f1ed` `2d080fc` | 6 responder/plan-tool unit tests; `xcodebuild` Debug build of Clarc target green with the new view |
 | **M6** Session lifecycle UI | ✅ DoD met | `1ac1031` `927cd5b` | 6 commands/lastSeqForResume unit tests; `xcodebuild` Debug build green with sidebar view |
+| **M7** Connect screen + persistence | ✅ DoD met | `0fea4a3` `50aaa16` | 6 store unit tests with in-memory keychain mock; `xcodebuild` Debug build green with connect screen |
 | R7 fix: `info.osUsers` schema | ✅ | `9e493ec` | Was: `OsUser[]?`. Now: `Bool?`. `OsUser` / `ClayOsUser` deleted. |
 
-### Test totals (post-M6)
-- Apple: **78 tests / 20 suites / ~3.3 s** (`swift test --package-path apple/Packages`)
+### Test totals (post-M7)
+- Apple: **84 tests / 21 suites / ~3.3 s** (`swift test --package-path apple/Packages`)
 - Daemon: **85 tests** (`node --test daemon/test/*.js`)
 - App target: `xcodebuild -project apple/Clarc.xcodeproj -scheme Clarc build` green
 
@@ -90,6 +92,9 @@ apple/Packages/Sources/ClarcCore/Clay/
 │   ├── ClayConnection+Outbound.swift   ← async-throws send helpers, M3
 │   ├── ClayPermissionResponder.swift   ← protocol + isPlanTool extension, M5
 │   └── ClaySessionCommands.swift       ← protocol + lastSeqForResume extension, M6
+├── Services/
+│   ├── ClayConnectionsStore.swift      ← UserDefaults + Keychain coordinator + in-memory mock, M7
+│   └── ClaySystemKeychainStore.swift   ← Security.framework SecItem implementation, M7
 └── State/
     ├── ClayChatItem.swift              ← chat-stream enum + 7 payload structs, M4
     ├── ClaySessionState.swift          ← per-session value type + coalesce mutators, M4
@@ -97,7 +102,8 @@ apple/Packages/Sources/ClarcCore/Clay/
 
 apple/Clarc/Clay/Views/
 ├── ClayPermissionModal.swift           ← SwiftUI permission modal, M5
-└── ClaySessionListView.swift           ← SwiftUI session sidebar, M6
+├── ClaySessionListView.swift           ← SwiftUI session sidebar, M6
+└── ClayConnectScreen.swift             ← SwiftUI connect form + recents, M7
 
 apple/Packages/Tests/ClarcCoreTests/Clay/
 ├── ClayConnectionConfigTests.swift          ← 9 cases (URL shapes)
@@ -111,6 +117,7 @@ apple/Packages/Tests/ClarcCoreTests/Clay/
 ├── ClayProjectStateTests.swift              ← 6 cases (synthetic stream / history equivalence / R5 replay)
 ├── ClayPermissionResponderTests.swift       ← 6 cases (isPlanTool / generic + plan dispatch / wire shape)
 ├── ClaySessionCommandsTests.swift           ← 6 cases (lastSeqForResume / pass-through / target cursor / wire shape)
+├── ClayConnectionsStoreTests.swift          ← 6 cases (round-trip / re-save / sort order / pin clear / delete / parser sanity)
 └── Support/
     ├── WebSocketMockServer.swift  ← NWListener + NWProtocolWebSocket
     └── MockDaemonServer.swift     ← Hand-rolled HTTP/1.1 + RFC 6455 WS
@@ -210,59 +217,73 @@ apple/Packages/Tests/ClarcCoreTests/Clay/
   session if the deleted one was the last. The client just sends
   `delete_session` and waits for the resulting `session_switched`
   + `session_list`. Don't second-guess this on the client.
+- **M7 split storage by sensitivity.** Recent URL list goes to
+  `UserDefaults` (plain JSON, non-secret). Per-URL PIN goes to
+  Keychain with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`.
+  Don't merge the two — a future debug-export feature should be
+  able to dump the URL list without leaking tokens.
+- **`ClayKeychainStore` is the test seam.** The system Keychain
+  conformer (`ClaySystemKeychainStore`) has zero unit tests by
+  design — exercise it manually when touching it. All store-
+  level logic tests run against `ClayInMemoryKeychainStore`
+  shipped in the same target.
+- **Connect screen is dumb about networking.** `ClayConnectScreen`
+  produces a validated `ClayConnectionConfig` and calls
+  `onConnect`. Instantiating `ClayConnection`, attaching a
+  `ClayMessageDispatcher` (M2), and wiring `ClayProjectState`'s
+  `connectionRef` is the M9 shell's job. Don't entangle the
+  form with the actor lifecycle.
+- **Re-save bumps timestamp without duplicating.** The store
+  upserts on `url` as the primary key. Three places in
+  `ClayConnectionsStore.save` make this trivial; don't refactor
+  to "find or insert" without keeping the test coverage.
 
-### What M7 needs to do
+### What M8 needs to do
 
-Per §M7 below, plus these constraints learned during M1–M6:
+Per §M8 below, plus these constraints learned during M1–M7:
 
-- Two-field form (`wss://host:port/p/<slug>/ws` + token).
-  `ClayConnectionConfig.parse` (M1) already validates the URL
-  shape; reuse it. Don't invent a second URL parser.
-- Persistence layer: URL list in `UserDefaults`, token per URL in
-  Keychain (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`). New
-  file suggested:
-  `apple/Clarc/Clay/Services/ClayConnectionsStore.swift`.
-- On Connect: instantiate `ClayConnection`, attach a
-  `ClayMessageDispatcher` (M2) whose receiver is a fresh
-  `ClayProjectState` (M4). Wire the project state's
-  `connectionRef` so M4's `updateResume` plumbing has somewhere
-  to land. Hand both up to whatever shell M9 will build.
-- Auth failure: M1 already maps `GET /info` 401 to
-  `ClayConnectionFailure.unauthorized` and stops the reconnect
-  loop. Surface that as the inline error in the connect screen;
-  don't add a new failure code.
-- Mirror M5/M6's testing pattern: a narrow protocol over the
-  Keychain operations (`save`, `read`, `delete`) with a
-  recording mock; the form view itself is exercised by
-  `#Preview` and manual smoke. Don't bring in a Keychain test
-  harness for a four-method surface.
+- This is daemon-side work, not Apple-side. Edit
+  `daemon/lib/project.js` around line 1035 (where the `info`
+  payload is built) to include `protocolVersion: "1"`. Keep
+  the field optional in `protocol/types.ts` so older clients
+  tolerate it.
+- The Apple `Info` decoder already ignores unknown fields, so
+  no change is needed there for the M8 release. (Adding a typed
+  `protocolVersion: String?` field is a Phase 2 cleanup if we
+  ever want to gate behaviour on it.)
+- Add a daemon test that calls each Tier 1 emit site at least
+  once and asserts the emitted JSON validates against the
+  matching fixture's structural shape (key set + types). The
+  fixtures live at `protocol/fixtures/<type>.json`.
+- Update `protocol/README.md` to note v1 is now wired on both
+  sides — one paragraph, no schema rewrite.
+- Don't expand scope. The Tier 2 audit / `client_count` /
+  `cursor_position` etc. work is explicitly deferred per R7.
 
-### Hidden cost not yet milestoned
+### Hidden cost still pending
 
-Before M9 can run smoke, **a Clay-specific ChatView must exist**.
-PLAN R2 mandates forking from `ClarcChatKit` rather than reusing
-the legacy ChatView (which binds to `ChatMessage`, not
-`ClayChatItem`). Reusable as-is from `ClarcChatKit`: `MarkdownView`,
+**M8.5 — Clay-specific ChatView fork** (still not started).
+Required before M9 can run smoke. ~430 LOC of fresh code in
+`apple/Clarc/Clay/Views/`: `ClayMessageListView`,
+`ClayMessageBubble`, `ClayInputBar`. Reuses `MarkdownView`,
 `ToolResultView`, `BubbleStyle`, `TypingDotsView`,
-`AskUserQuestionView`. Need to write fresh:
-`ClayMessageListView` (~150 LOC), `ClayMessageBubble` (~200 LOC),
-`ClayInputBar` (~80 LOC) — slash commands and attachments are
-explicitly out of scope per §2. Estimate: 0.5–1 day. Track this as
-**M8.5** when M9 starts; until then it's documented here.
+`AskUserQuestionView` from `ClarcChatKit` as-is. Estimate:
+0.5–1 day.
 
 ### How to resume in a new session
 
 1. `git log --oneline | head -10` to see the commit chain.
-2. `swift test --package-path apple/Packages` should print 78 tests
-   passing — if it doesn't, fix that before touching M7.
+2. `swift test --package-path apple/Packages` should print 84 tests
+   passing — if it doesn't, fix that before touching M8.
 3. `xcodebuild -project apple/Clarc.xcodeproj -scheme Clarc \
    CODE_SIGNING_ALLOWED=NO build` should succeed. (Metal toolchain
    may need `xcodebuild -downloadComponent MetalToolchain` on a
    fresh Xcode install.)
-4. Read this Progress log + §M7 below.
-5. Start with the persistence layer (`ClayConnectionsStore`) — the
-   form is trivial once read/save/delete are in place. Reuse
-   `ClayConnectionConfig.parse` for URL validation.
+4. `node --test daemon/test/*.js` should print 85 tests passing.
+5. Read this Progress log + §M8 below.
+6. M8 is a one-string daemon edit (`protocolVersion: "1"` in the
+   `info` payload) plus a Tier-1 emit-coverage test. Don't expand
+   scope; the broader R7 audit is deferred.
 
 ## 4. Architecture overview
 
