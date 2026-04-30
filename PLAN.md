@@ -4,11 +4,11 @@
 > **Owner:** TBD. **Target completion:** TBD.
 > **Prereqs done:** `protocol/types.ts`, fixtures, daemon round-trip test,
 > Apple Codable mirror — all green as of `9f1d83b`.
-> **Latest progress:** M1 / M2 / M3 / M4 / M5 / M6 / M7 shipped (see "Progress log" below).
-> 84 Swift tests + 85 daemon tests green. Next: **M8.5** (Clay-specific
-> ChatView fork) → **M9** (wire-up + smoke). **M8 is deferred** — keep
-> the daemon at zero Phase 1 changes; revisit only if the M9 smoke
-> exposes a real protocol mismatch.
+> **Latest progress:** M1–M7 + M8.5 shipped (see "Progress log" below).
+> 86 Swift tests + 85 daemon tests green. Next: **M9** (wire-up +
+> smoke). **M8 is deferred** — keep the daemon at zero Phase 1
+> changes; revisit only if the M9 smoke exposes a real protocol
+> mismatch.
 
 ## 1. Goal
 
@@ -76,10 +76,12 @@ Everything below is deliberately deferred. Don't sneak any of it in.
 | **M5** Permission flow UI | ✅ DoD met | `bf1f1ed` `2d080fc` | 6 responder/plan-tool unit tests; `xcodebuild` Debug build of Clarc target green with the new view |
 | **M6** Session lifecycle UI | ✅ DoD met | `1ac1031` `927cd5b` | 6 commands/lastSeqForResume unit tests; `xcodebuild` Debug build green with sidebar view |
 | **M7** Connect screen + persistence | ✅ DoD met | `0fea4a3` `50aaa16` | 6 store unit tests with in-memory keychain mock; `xcodebuild` Debug build green with connect screen |
+| **M8.5** Clay ChatView fork | ✅ DoD met | `bc98a2d` `0ccd6a0` `b7bf87c` | 2 message-sender unit tests; ChatKit patch (3 types made public, zero behavioural change); `xcodebuild` Debug build green with three new views |
 | R7 fix: `info.osUsers` schema | ✅ | `9e493ec` | Was: `OsUser[]?`. Now: `Bool?`. `OsUser` / `ClayOsUser` deleted. |
+| **M8** Daemon polish | ⏸ deferred | — | See D4 / §M8: Phase 1 ships with zero daemon changes. Revisit only if M9 smoke surfaces a real protocol mismatch. |
 
-### Test totals (post-M7)
-- Apple: **84 tests / 21 suites / ~3.3 s** (`swift test --package-path apple/Packages`)
+### Test totals (post-M8.5)
+- Apple: **86 tests / 22 suites / ~3.3 s** (`swift test --package-path apple/Packages`)
 - Daemon: **85 tests** (`node --test daemon/test/*.js`)
 - App target: `xcodebuild -project apple/Clarc.xcodeproj -scheme Clarc build` green
 
@@ -98,7 +100,8 @@ apple/Packages/Sources/ClarcCore/Clay/
 │   ├── ClayOutbound.swift              ← static factories, M3
 │   ├── ClayConnection+Outbound.swift   ← async-throws send helpers, M3
 │   ├── ClayPermissionResponder.swift   ← protocol + isPlanTool extension, M5
-│   └── ClaySessionCommands.swift       ← protocol + lastSeqForResume extension, M6
+│   ├── ClaySessionCommands.swift       ← protocol + lastSeqForResume extension, M6
+│   └── ClayMessageSender.swift         ← protocol for outbound user message, M8.5
 ├── Services/
 │   ├── ClayConnectionsStore.swift      ← UserDefaults + Keychain coordinator + in-memory mock, M7
 │   └── ClaySystemKeychainStore.swift   ← Security.framework SecItem implementation, M7
@@ -107,10 +110,18 @@ apple/Packages/Sources/ClarcCore/Clay/
     ├── ClaySessionState.swift          ← per-session value type + coalesce mutators, M4
     └── ClayProjectState.swift          ← @MainActor @Observable receiver, big-switch apply, M4
 
+apple/Packages/Sources/ClarcChatKit/  ← M8.5 made these public (zero behavioural change):
+- MarkdownView.swift::MarkdownContentView (markdown rendering)
+- BubbleStyle.swift::BubbleStyle + bubbleStyle(_:) helper
+- TypingDotsView.swift::PulseRingView (streaming pulse indicator)
+
 apple/Clarc/Clay/Views/
 ├── ClayPermissionModal.swift           ← SwiftUI permission modal, M5
 ├── ClaySessionListView.swift           ← SwiftUI session sidebar, M6
-└── ClayConnectScreen.swift             ← SwiftUI connect form + recents, M7
+├── ClayConnectScreen.swift             ← SwiftUI connect form + recents, M7
+├── ClayMessageBubble.swift             ← ChatItem switch (markdown / tool / etc.), M8.5
+├── ClayMessageListView.swift           ← scroll list + auto-scroll-to-bottom, M8.5
+└── ClayInputBar.swift                  ← TextField composer + send button, M8.5
 
 apple/Packages/Tests/ClarcCoreTests/Clay/
 ├── ClayConnectionConfigTests.swift          ← 9 cases (URL shapes)
@@ -125,6 +136,7 @@ apple/Packages/Tests/ClarcCoreTests/Clay/
 ├── ClayPermissionResponderTests.swift       ← 6 cases (isPlanTool / generic + plan dispatch / wire shape)
 ├── ClaySessionCommandsTests.swift           ← 6 cases (lastSeqForResume / pass-through / target cursor / wire shape)
 ├── ClayConnectionsStoreTests.swift          ← 6 cases (round-trip / re-save / sort order / pin clear / delete / parser sanity)
+├── ClayMessageSenderTests.swift             ← 2 cases (recording mock pass-through / wire shape)
 └── Support/
     ├── WebSocketMockServer.swift  ← NWListener + NWProtocolWebSocket
     └── MockDaemonServer.swift     ← Hand-rolled HTTP/1.1 + RFC 6455 WS
@@ -247,71 +259,70 @@ apple/Packages/Tests/ClarcCoreTests/Clay/
   `ClayConnectionsStore.save` make this trivial; don't refactor
   to "find or insert" without keeping the test coverage.
 
-### What M8.5 needs to do
+### M8.5 lessons (key implementation choices)
 
-**M8.5 — Clay-specific ChatView fork.** Promoted from "hidden
-cost" to the active milestone now that M8 is deferred. M8.5 is
-the last code piece blocking M9 smoke.
+- **Make ChatKit reusables `public`, don't fork them.**
+  `MarkdownContentView`, `BubbleStyle`, and `PulseRingView` had
+  zero environment dependencies — three small `public` keyword
+  edits beat a 781-LOC markdown re-implementation. Apply the
+  same logic to anything else with no `@Environment(WindowState
+  / ChatBridge)` coupling. Anything that DOES depend on
+  WindowState (notably `ToolResultView`'s inspector/diff hooks
+  and `AskUserQuestionView`'s answer handler) — fork instead;
+  the WindowState refactor risk is real.
+- **Tool block is hand-rolled, not a `ToolResultView` reuse.**
+  M8.5 ships a ~120-LOC `ClayToolBlock` inside
+  `ClayMessageBubble.swift`. No file-preview / diff hooks; no
+  ToolCategory dispatch; no transient-tool hiding. If those are
+  wanted in Phase 2, do them after M10 deletes the legacy code
+  so there's no churn risk. Don't introduce a `ClayChatItem
+  .ToolItem -> ToolCall` adapter just to reuse the legacy view —
+  it's a slippery slope back to `WindowState` coupling.
+- **Auto-scroll triggers on three signals.** `messages.count`,
+  `trailingTextLength` (so delta coalesce keeps the bottom
+  pinned), and `processingStatus` flips. There's no "user
+  scrolled up — pause auto-scroll" yet (Phase 2 polish).
+- **InputBar is gated on `processingStatus`**, not on the local
+  `inFlight` flag alone. The daemon would queue an over-send,
+  but the UX is clearer if the composer disables itself the
+  moment the previous turn starts streaming.
+- **`clientMsgId` is auto-generated on every send.** M4 echoes
+  it via `user_message.clientMsgId`; the daemon uses it to
+  dedupe optimistic renders. Phase 1 doesn't render
+  optimistically (the input bar just clears and waits for the
+  echo) but the field is wired so Phase 2 can flip it on.
 
-Per §M8.5 below, plus these constraints learned during M1–M7:
+### What M9 needs to do
 
-- Don't try to share view code with `ClarcChatKit`'s legacy
-  `ChatView`. R2 says fork. The legacy `ChatMessage` model and
-  `ClayChatItem` have different shapes (no attachments, no
-  `isCompactBoundary`, `.systemError` is its own case, tool
-  back-fill semantics differ).
-- Reusable as-is from `ClarcChatKit` — DO use these, don't
-  duplicate them: `MarkdownView` (string → AttributedString),
-  `ToolResultView` (renders a `ToolCall`), `BubbleStyle`,
-  `TypingDotsView`, `AskUserQuestionView`. `ToolResultView`
-  takes a `ClarcCore.ToolCall` — write a 30-LOC adapter from
-  `ClayChatItem.ToolItem` to `ToolCall` rather than touching the
-  view. Phase 1 deletes the legacy `ToolCall` type with M10
-  anyway, so the adapter is throwaway.
-- Out of scope: slash commands, attachments, shortcuts bar,
-  edit-and-resend, long-text fold, older-message fold, status
-  line. None of these are in Tier 1 protocol; all of them go
-  away with the legacy code in M10. Don't port them.
-- View files go in `apple/Clarc/Clay/Views/` next to the M5/M6/
-  M7 views. New files:
-  - `ClayMessageListView.swift` — ScrollView over
-    `[ClayChatItem]` with auto-scroll-to-bottom while streaming.
-  - `ClayMessageBubble.swift` — switch over `ClayChatItem`
-    cases; reuses MarkdownView for assistant text and
-    ToolResultView for tools.
-  - `ClayInputBar.swift` — TextField + send button; calls
-    `ClayConnection.sendMessage(text:)` (M3).
-- ViewModel-style outbound seam: a tiny `ClayMessageSender`
-  protocol with one method, mirroring M5/M6/M7. Lets the input
-  bar be unit-tested with a recording mock.
+Per §M9 below, plus these constraints learned during M1–M8.5:
 
-### What M9 needs to do (after M8.5)
-
-Per §M9 below, plus this rewritten DoD:
-
-- Original M9 DoD assumed M8's `protocolVersion` was in tree.
-  With M8 deferred, the smoke must work against the daemon as
-  shipped — no `daemon/` changes allowed in any commit between
-  the start of M9 and the smoke recording.
-- `ClarcApp` boots into a `ClayMainWindow` (three-pane shell
-  per D3) when a saved connection exists, otherwise covers it
-  with `ClayConnectScreen` (M7) as a sheet/modal.
-- The shell instantiates `ClayConnection`, attaches a
-  `ClayMessageDispatcher` (M2) whose receiver is a fresh
-  `ClayProjectState` (M4), wires `connectionRef` so M4's
-  `updateResume` plumbing has somewhere to land, and routes the
-  three panes from M6 / M8.5 / a permission `.sheet(item:)`
-  bound to `pendingPermissions.values.first` (M5).
-- If the smoke surfaces a daemon-side issue, **stop and ask**
-  before touching `daemon/`. M8 may need to come back, but only
-  with explicit approval — Phase 1 ships zero daemon changes by
-  default.
+- The data path is complete: M1 connection, M2 dispatcher,
+  M3 outbound, M4 state, M5 permission, M6 sessions,
+  M7 persistence, M8.5 chat views. M9 is pure wiring + a
+  smoke recording.
+- **Zero daemon changes** between M7 close (`50aaa16`) and the
+  smoke recording. If smoke fails because of a daemon-side
+  issue, stop and re-evaluate M8 explicitly — don't silently
+  edit `daemon/`.
+- `ClarcApp` boots into `ClayMainWindow` when a saved connection
+  exists, otherwise covers it with `ClayConnectScreen` (M7) as
+  a sheet/modal.
+- The shell owns one `ClayConnection`, one
+  `ClayMessageDispatcher` (M2) whose receiver is one
+  `ClayProjectState` (M4). Wire `state.connectionRef = connection`
+  so M4's `updateResume` plumbing has somewhere to land.
+- Three-pane layout (D3): left rail stub / `ClaySessionListView`
+  middle / `ClayMessageListView` + `ClayInputBar` right.
+  Permission UX: `.sheet(item:)` bound to
+  `state.activeSessionState?.pendingPermissions.values.first`.
+- Document the smoke flow in `apple/docs/clay-mode.md` and
+  record `apple/media/clay-mode-smoke.mov`.
 
 ### How to resume in a new session
 
 1. `git log --oneline | head -10` to see the commit chain.
-2. `swift test --package-path apple/Packages` should print 84 tests
-   passing — if it doesn't, fix that before touching M8.5.
+2. `swift test --package-path apple/Packages` should print 86 tests
+   passing — if it doesn't, fix that before touching M9.
 3. `xcodebuild -project apple/Clarc.xcodeproj -scheme Clarc \
    CODE_SIGNING_ALLOWED=NO build` should succeed. (Metal toolchain
    may need `xcodebuild -downloadComponent MetalToolchain` on a
@@ -319,12 +330,14 @@ Per §M9 below, plus this rewritten DoD:
 4. `node --test daemon/test/*.js` should print 85 tests passing.
    **The daemon must stay at zero Phase 1 changes** — if you find
    yourself editing under `daemon/`, stop and re-read D4 above.
-5. Read this Progress log + §M8.5 + §M9 below.
-6. Order: M8.5 first (ChatView fork) → M9 (wire-up + smoke). M8.5
-   is ~430 LOC of fresh SwiftUI; reuse `MarkdownView`,
-   `ToolResultView`, `BubbleStyle`, `TypingDotsView`,
-   `AskUserQuestionView` from `ClarcChatKit` rather than
-   re-implementing them.
+5. Read this Progress log + §M9 below.
+6. M9 is wiring, not new code paths. Build `ClayMainWindow`
+   (three panes: stub left rail, `ClaySessionListView`,
+   `ClayMessageListView` + `ClayInputBar`) and one
+   `.sheet(item:)` for the permission modal. Create one
+   `ClayConnection` + `ClayMessageDispatcher` + `ClayProjectState`
+   triplet on connect. Take the smoke recording before declaring
+   M9 done.
 
 ## 4. Architecture overview
 
