@@ -392,6 +392,28 @@
 .permission-icon .lucide { width: 16px; height: 16px; }
 .permission-title { font-size: 13px; font-weight: 500; }
 
+/* Backend source badge — distinguishes Codex approval prompts from Claude's
+   in mixed-project setups. Uses --accent2 (indigo) per DESIGN.md to keep
+   --accent reserved for primary user actions. */
+.permission-source-badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: rgba(var(--overlay-rgb), 0.04);
+  flex-shrink: 0;
+}
+.permission-source-badge[data-source="codex"] {
+  color: var(--accent2);
+  border-color: var(--accent2);
+  background: rgba(var(--accent2-rgb, 99, 102, 241), 0.08);
+}
+
 .permission-body {
   padding: 14px 16px;
   border: 1px solid var(--border);

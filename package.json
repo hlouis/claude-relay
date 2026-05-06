@@ -10,10 +10,12 @@
     "dev:isolated": "bash scripts/dev-isolated.sh",
     "dev:isolated:stop": "bash scripts/dev-isolated.sh --shutdown",
     "dev:isolated:clean": "bash scripts/dev-isolated.sh --clean",
-    "test": "node --test test/agent-backend.test.js test/codex-jsonrpc.test.js",
+    "test": "node --test test/agent-backend.test.js test/codex-jsonrpc.test.js test/codex-approval.test.js",
     "test:e2e": "node scripts/codex-e2e.js",
     "test:e2e:ui": "node scripts/codex-ui-e2e.js --headless",
     "test:e2e:auth-card": "node scripts/codex-auth-card-e2e.js --headless",
+    "test:e2e:approval": "node scripts/codex-approval-ui-e2e.js --headless",
+    "verify:approval-live": "node scripts/codex-approval-live-verify.js",
     "semantic-release": "semantic-release"
   },
   "files": [

@@ -6,14 +6,14 @@
 
 ## 当前进度
 
-| 迭代 | 状态 | 提交 |
+| 迭代 | 状态 | 摘要 |
 |---|---|---|
-| 0 | ✅ 完成 | `81383ed refactor(backend): introduce agent-backend factory` |
-| 1 | ✅ 完成 | `2fef824 feat(codex): add Codex agent backend with isolated test harness`<br>`19a60ed feat(codex): topbar backend chip and not-logged-in guidance card` |
-| 2 | ⏳ 下一个 | — |
+| 0 | ✅ 完成 | agent-backend factory |
+| 1 | ✅ 完成 | Codex MVP（端到端对话 + selector + 徽标 + chip + 未登录引导卡） |
+| 2 | ✅ 完成 | 审批流对接（workspace-write + approvalsReviewer=user + 来源徽章） |
 | 3-6 | 未开始 | — |
 
-测试覆盖：单元 12/12 + WS e2e 9/9 + UI e2e 12/12 + Auth-card e2e 9/9 = **42/42 全绿**。
+测试覆盖：单元 19/19 + WS e2e 9/9 + UI e2e 12/12 + Auth-card e2e 9/9 + Approval UI e2e 7/7 = **56/56 全绿**。
 
 ---
 
@@ -122,20 +122,35 @@ project.js  ──► AgentBackend (interface)
 
 ---
 
-### Iteration 2 — 权限流对接
+### Iteration 2 — 权限流对接 ✅
 
 **目标**：Codex 项目能跑需要审批的命令；用户在熟悉的权限弹窗里 accept/decline。
 
-- `CodexBackend` 拦截 `item/commandExecution/requestApproval` 与 `item/fileChange/requestApproval`。
-- 注入现有 `pendingPermissions[id]`，复用现有 WS `permission_request` 广播路径。
-- 把客户端 `accept` / `decline` 翻译成 Codex JSON-RPC 响应。
-- `acceptForSession` 映射到 Clay 现有"本次会话允许"概念。
-- 权限 Modal 顶部加来源标签（`Claude` / `Codex`）。
-- 收到 Codex 网络访问审批请求时按相同模式处理（同一来源 host 合并）。
+#### 后端 ✅
+- **关键协议事实**：`thread/start` 默认 `approvalsReviewer: "auto_review"`，guardian 自决不询问客户端。必须显式传 `"user"` 才会触发 `item/commandExecution/requestApproval` 服务端请求。这一点 schema 注释里没明说，是 live verification 中实测踩出来的（见提交说明）。
+- `CodexBackend.handleServerRequest` 识别 `item/commandExecution/requestApproval` + `item/fileChange/requestApproval`，从 `-32601` 全拒兜底改为：
+  - 注入 `currentSession.pendingPermissions[requestId]`，复用现有 WS `permission_request` 广播路径。
+  - `.then(result)` 翻译 Clay 的 `{behavior, ...}` 回 Codex 决策枚举：
+    - `allow` → `"accept"`
+    - `allow_always`（检测 `session.allowedTools[toolName]` 同步置位）→ `"acceptForSession"` 且额外缓存 `allowedTools["codex:exec"|"codex:fileChange"]`，同会话同类后续请求自动 accept 不再弹窗。
+    - `deny` → `"decline"`（turn 继续，不用 `cancel`，给模型自我修正空间）。
+  - 没有活跃 session 时（极端边界）安全 decline，让 turn 能完结。
+  - 其他未知 `ServerRequest` 仍 `-32601`。
+- `thread/start` 沙箱：`sandbox: "workspace-write"` + `approvalPolicy: "on-request"`，让审批真触发。
 
-**完成标准**：Codex 项目跑一个会触发审批的命令（如 `git push`）→ 弹现有权限 Modal → 选择后正确继续/中止。
+#### UI ✅
+- `permission_request` 消息新增 `source` 字段（codex-backend 主动注入）；`renderPermissionRequest(requestId, toolName, toolInput, decisionReason, source)` 读取并在 header 末尾渲染 `.permission-source-badge`，Codex 用 `--accent2`（indigo）外观，Claude 用中性色，老消息无 source 默认 `"claude"`，零破坏。
+- CSS：`.permission-source-badge[data-source="codex"]` 在 `lib/public/css/rewind.css` 中定义。
 
-**不做**：命令 amendments（修改命令再执行）。明确推迟到后续迭代。
+#### 测试 ✅
+- 新增 `test/codex-approval.test.js`（7 单元测试）：覆盖 broadcast / accept / acceptForSession+allowKey 缓存 / decline / 自动接受 / 无 session decline / 未知方法 -32601。
+- 新增 `scripts/codex-approval-ui-e2e.js` + `npm run test:e2e:approval`（4 断言 Playwright UI）：注入合成 DOM 验证 source 徽章渲染与配色差异。
+- 现有 42/42 全部继续通过；总数提升到 56/56。
+- 额外提供 `npm run verify:approval-live`（`scripts/codex-approval-live-verify.js`）作为**手动 / 一次性验证工具**：实际驱动 Codex 跑 `echo > $HOME/...`（在 sandbox 外的 home 目录），断言 `permission_request` 真到达 + 徽章渲染 + accept 后文件确实被写入。不进 CI 套件（依赖外部账号/网络），但首次发布前必须本地跑过一次。
+
+**为什么不进 CI**：模型决定何时调用工具是非确定性的，让 e2e 依赖模型行为会产生 flaky。审批路由的所有翻译契约用单元测试更可靠，UI 渲染用合成 DOM 测试更稳定。`verify:approval-live` 用于本地"一次性确认管道真打通"，每次发布前手跑一次。
+
+**不做**（明确推迟）：命令 amendments / 修改命令再执行（Iter 5）；execpolicy / network policy 持久化建议（Iter 5）；`grantRoot` 全会话写授予；`cancel` 决策（Clay UI 暂无独立 "deny + interrupt" 入口）。
 
 ---
 
@@ -220,11 +235,15 @@ project.js  ──► AgentBackend (interface)
 
 ## 当前下一步
 
-**进入 Iteration 2 — 权限流对接。**
+**进入 Iteration 3 — 设置面板与模型切换。**
 
-具体抓手：
-1. `lib/codex-backend.js` 把 `handleServerRequest` 从"全部 -32601 拒绝"改成识别审批方法（`execCommandApproval` / `applyPatchApproval` / `commandExecution/requestApproval` / `fileChange/requestApproval`），翻译成 Clay 现有的 `session.pendingPermissions[requestId]` Promise + WS `permission_request` 广播。
-2. 客户端 `accept` / `decline` / `acceptForSession` 翻译成 Codex JSON-RPC 响应（`{decision: "approved"|"denied"|"approved_for_session"}` 之类，需查具体 schema）。
-3. `thread/start` 的 `sandbox` 从 `read-only` 改成 `workspace-write`，`approvalPolicy` 从 `never` 改成 `on-request` 让审批真触发。
-4. 权限 Modal 顶部加来源标签（`Claude` / `Codex`）。
-5. 自动化测试：写一个 e2e 让 Codex 跑会触发审批的命令（如 `git push`），断言权限 Modal 出现 + accept/decline 路径都能继续/中止 turn。
+具体抓手（待开工时再细化）：
+1. AgentBackend 接口暴露"声明支持哪些 setting key"的能力。
+2. 设置抽屉按后端分发：Claude 区块保持现状；Codex 区块加 model / reasoning effort / sandbox policy / approval policy。
+3. 顶栏 model chip 可点击切换 Codex 模型（`model/list`）。
+4. "API Key 覆盖"折叠区在引导卡片下方暴露，存项目 config 作为 `OPENAI_API_KEY` env 注入子进程。
+5. 不适用功能在 Codex 项目里完全 hide：Rewind / Slash commands / Skills / Hooks。
+
+**Iter 2 实测后发现待跟进项**（不阻塞 Iter 3）：
+- `acceptForSession` 当前只缓存到 Clay 侧 `session.allowedTools[allowKey]`，重启 daemon 后丢失。Codex 进程内的会话 cache 也是同会话作用域，行为一致 — 但要在 Iter 4 错误处理里明确说明。
+- 网络审批 (`networkApprovalContext`) 走的是同一 `commandExecution/requestApproval` 通道；UI 当前只展示命令文本，不区分 "命令" vs "命令+网络"。Iter 3 设置面板加 `networkAccess` 开关时再统一处理。
