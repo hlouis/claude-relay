@@ -108,25 +108,44 @@ function wsRecv(ws, predicate, timeoutMs, label) {
     ws.once("error", reject);
   });
 
-  console.log("[e2e] step 4: wait for info; assert codex flags");
-  var info = (await wsRecv(ws, function (m) { return m.type === "info"; }, 10000, "info")).message;
-  check(info.backend === "codex", "info.backend === 'codex' (got " + info.backend + ")");
-  check(info.codex && info.codex.binAvailable === true, "info.codex.binAvailable === true");
-  check(info.codex && info.codex.authOk === true, "info.codex.authOk === true (got " + JSON.stringify(info.codex) + ")");
-  // Iter 3 step 2: capabilities forwarded over the wire so the frontend
-  // can render only the controls the backend actually honors.
+  console.log("[e2e] step 4: wait for info + codex_config first echo (collected together)");
+  // We wait for codex_config (which the connect handler sends right after
+  // info on a Codex project) and then dig info out of the buffered set.
+  // wsRecv removes its listener as soon as the predicate matches, so
+  // racing two separate wsRecv calls would drop messages — we collect
+  // both in a single drain.
+  var connectDrain = await wsRecv(ws, function (m) { return m.type === "codex_config"; }, 10000, "codex_config first echo");
+  var info = null;
+  var firstEcho = connectDrain.message;
+  for (var di = 0; di < connectDrain.all.length; di++) {
+    if (connectDrain.all[di].type === "info") { info = connectDrain.all[di]; break; }
+  }
+  check(info !== null, "info message arrived before codex_config");
+  check(info && info.backend === "codex", "info.backend === 'codex' (got " + (info && info.backend) + ")");
+  check(info && info.codex && info.codex.binAvailable === true, "info.codex.binAvailable === true");
+  check(info && info.codex && info.codex.authOk === true, "info.codex.authOk === true (got " + JSON.stringify(info && info.codex) + ")");
   check(
-    info.capabilities && Array.isArray(info.capabilities.settings),
-    "info.capabilities.settings is an array (got " + JSON.stringify(info.capabilities) + ")"
+    info && info.capabilities && Array.isArray(info.capabilities.settings),
+    "info.capabilities.settings is an array (got " + JSON.stringify(info && info.capabilities) + ")"
   );
   check(
-    info.capabilities && info.capabilities.settings.indexOf("sandbox") !== -1,
-    "Codex capabilities advertise 'sandbox' (got " + JSON.stringify(info.capabilities && info.capabilities.settings) + ")"
+    info && info.capabilities && info.capabilities.settings.indexOf("sandbox") !== -1,
+    "Codex capabilities advertise 'sandbox'"
   );
   check(
-    info.capabilities && info.capabilities.settings.indexOf("permissionMode") === -1,
+    info && info.capabilities && info.capabilities.settings.indexOf("permissionMode") === -1,
     "Codex capabilities do NOT advertise Claude-only 'permissionMode'"
   );
+
+  console.log("[e2e] step 4.5: verify codex_config first-connection echo carries defaults");
+  check(firstEcho.sandbox === "workspace-write",
+    "first-echo sandbox === 'workspace-write' (got " + firstEcho.sandbox + ")");
+  check(firstEcho.approvalPolicy === "on-request",
+    "first-echo approvalPolicy === 'on-request' (got " + firstEcho.approvalPolicy + ")");
+  check(typeof firstEcho.model === "string",
+    "first-echo carries model field (got " + JSON.stringify(firstEcho.model) + ")");
+  check(typeof firstEcho.effort === "string",
+    "first-echo carries effort field (got " + JSON.stringify(firstEcho.effort) + ")");
 
   console.log("[e2e] step 5: create a session and send a short prompt");
   ws.send(JSON.stringify({ type: "new_session" }));
@@ -219,6 +238,27 @@ function wsRecv(ws, predicate, timeoutMs, label) {
     "daemon.json approvalPolicy === 'never' (got " + (savedEntry && savedEntry.codexConfig && savedEntry.codexConfig.approvalPolicy) + ")");
 
   ws.close();
+  await new Promise(function (r) { setTimeout(r, 200); });
+
+  // Iter 4 follow-up: reconnect to verify that the codex_config echo on a
+  // brand-new WS connection carries the values we just set, not the
+  // defaults. This proves the load path (in-memory desired* survives
+  // across WS lifecycles) and the connect-handler echo work end-to-end.
+  console.log("[e2e] step 6.7: reconnect and verify codex_config echo carries persisted values");
+  var ws2 = new WebSocket("ws://localhost:" + PORT + "/p/" + slug + "/ws");
+  await new Promise(function (resolve, reject) {
+    ws2.once("open", resolve);
+    ws2.once("error", reject);
+  });
+  // Single-drain to avoid the listener-removal race that would otherwise
+  // drop codex_config when wsRecv resolves on info.
+  var reconnectDrain = await wsRecv(ws2, function (m) { return m.type === "codex_config"; }, 5000, "codex_config on reconnect");
+  var reconnectEcho = reconnectDrain.message;
+  check(reconnectEcho.sandbox === "read-only",
+    "reconnect echo sandbox === 'read-only' (got " + reconnectEcho.sandbox + ")");
+  check(reconnectEcho.approvalPolicy === "never",
+    "reconnect echo approvalPolicy === 'never' (got " + reconnectEcho.approvalPolicy + ")");
+  ws2.close();
 
   console.log("[e2e] step 7: cleanup — remove project");
   await ipcSend({ cmd: "remove_project", slug: slug }).catch(function () {});

@@ -333,3 +333,61 @@ test("rejected setter values do not trigger persistence", function () {
   ctx.backend.setApprovalPolicy(null, "trust-everything");
   assert.strictEqual(ctx.persisted.length, 0, "invalid setter calls skip persistence");
 });
+
+// --- Iter 4 follow-up: codex_config first-connection echo ---
+
+test("getCodexConfig returns the live snapshot of desired settings", function () {
+  var ctx = makeBackend({
+    codexConfig: {
+      sandbox: "danger-full-access",
+      approvalPolicy: "untrusted",
+      model: "gpt-4.1",
+      effort: "low",
+    },
+  });
+  var snap = ctx.backend.getCodexConfig();
+  assert.deepStrictEqual(snap, {
+    sandbox: "danger-full-access",
+    approvalPolicy: "untrusted",
+    model: "gpt-4.1",
+    effort: "low",
+  });
+});
+
+test("getCodexConfig reflects setter mutations", function () {
+  var ctx = makeBackend();
+  ctx.backend.setSandbox(null, "read-only");
+  ctx.backend.setModel(null, "gpt-5");
+  var snap = ctx.backend.getCodexConfig();
+  assert.strictEqual(snap.sandbox, "read-only");
+  assert.strictEqual(snap.model, "gpt-5");
+  // Untouched keys keep their defaults.
+  assert.strictEqual(snap.approvalPolicy, "on-request");
+  assert.strictEqual(snap.effort, "");
+});
+
+test("initial codexConfig seeds sm.currentModel + sm.currentEffort for connect-handler echoes", function () {
+  // sm is captured by makeBackend; we observe it after construction.
+  var sent = [];
+  var sm = {
+    sendAndRecord: function (_s, o) { sent.push(o); },
+    saveSessionFile: function () {},
+    broadcastSessionList: function () {},
+    getActiveSession: function () { return null; },
+    currentModel: "",
+    currentEffort: "medium",
+    currentPermissionMode: "default",
+    availableModels: [],
+  };
+  var { createCodexBackend } = require("../lib/codex-backend");
+  createCodexBackend({
+    cwd: "/tmp",
+    slug: "test",
+    sessionManager: sm,
+    send: function () {},
+    onProcessingChanged: function () {},
+    codexConfig: { model: "gpt-5-codex", effort: "high" },
+  });
+  assert.strictEqual(sm.currentModel, "gpt-5-codex", "sm.currentModel seeded");
+  assert.strictEqual(sm.currentEffort, "high", "sm.currentEffort seeded");
+});
