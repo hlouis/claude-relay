@@ -192,6 +192,32 @@ function wsRecv(ws, predicate, timeoutMs, label) {
   check(lastEcho && lastEcho.sandbox === "read-only", "echo.sandbox === 'read-only'");
   check(lastEcho && lastEcho.approvalPolicy === "never", "echo.approvalPolicy === 'never'");
 
+  // Iter 4 follow-up: persistence to daemon.json. After a setter fires the
+  // daemon must have updated `config.projects[i].codexConfig` and written
+  // it to disk so a daemon restart preserves the user's selection. We
+  // assert the file shape directly instead of restarting the daemon.
+  console.log("[e2e] step 6.6: verify daemon.json reflects persisted codexConfig");
+  var daemonJsonPath = path.join(TESTHOME, ".clay", "daemon.json");
+  // Allow saveConfig() to land — it's synchronous in daemon.js but the
+  // setter path is async via WS, so a tick is enough.
+  await new Promise(function (r) { setTimeout(r, 200); });
+  var dj = null;
+  try { dj = JSON.parse(fs.readFileSync(daemonJsonPath, "utf8")); }
+  catch (e) { /* dj stays null */ }
+  check(dj !== null, "daemon.json is readable at " + daemonJsonPath);
+  var savedEntry = null;
+  if (dj && Array.isArray(dj.projects)) {
+    for (var pi = 0; pi < dj.projects.length; pi++) {
+      if (dj.projects[pi].slug === slug) { savedEntry = dj.projects[pi]; break; }
+    }
+  }
+  check(savedEntry !== null, "project entry for slug=" + slug + " present in daemon.json");
+  check(savedEntry && savedEntry.codexConfig, "codexConfig key exists on the project entry");
+  check(savedEntry && savedEntry.codexConfig && savedEntry.codexConfig.sandbox === "read-only",
+    "daemon.json sandbox === 'read-only' (got " + (savedEntry && savedEntry.codexConfig && savedEntry.codexConfig.sandbox) + ")");
+  check(savedEntry && savedEntry.codexConfig && savedEntry.codexConfig.approvalPolicy === "never",
+    "daemon.json approvalPolicy === 'never' (got " + (savedEntry && savedEntry.codexConfig && savedEntry.codexConfig.approvalPolicy) + ")");
+
   ws.close();
 
   console.log("[e2e] step 7: cleanup — remove project");

@@ -45,7 +45,7 @@ function makeFakeSession() {
   };
 }
 
-function makeBackend() {
+function makeBackend(extraOpts) {
   var sent = [];
   var sm = {
     sendAndRecord: function (_session, obj) { sent.push(obj); },
@@ -58,15 +58,22 @@ function makeBackend() {
     availableModels: [],
   };
   var topbar = [];
-  var be = createCodexBackend({
+  var persisted = [];
+  var beOpts = {
     cwd: "/tmp",
     slug: "test",
     sessionManager: sm,
     send: function (obj) { topbar.push(obj); },
     pushModule: null,
     onProcessingChanged: function () {},
-  });
-  return { backend: be, sent: sent, topbar: topbar };
+    onCodexConfigChange: function (snap) { persisted.push(snap); },
+  };
+  if (extraOpts) {
+    var keys = Object.keys(extraOpts);
+    for (var k = 0; k < keys.length; k++) beOpts[keys[k]] = extraOpts[keys[k]];
+  }
+  var be = createCodexBackend(beOpts);
+  return { backend: be, sent: sent, topbar: topbar, persisted: persisted };
 }
 
 test("command approval request broadcasts permission_request with source=codex", async function () {
@@ -265,4 +272,64 @@ test("setModel and setEffort populate desired thread/start params", function () 
   var s = ctx.backend._getDesiredSettingsForTest();
   assert.strictEqual(s.model, "gpt-5-codex");
   assert.strictEqual(s.reasoningEffort, "high");
+});
+
+// --- Iter 4 follow-up: codex_config persistence ---
+
+test("initial codexConfig seeds desired thread/start params from daemon.json", function () {
+  var ctx = makeBackend({
+    codexConfig: {
+      sandbox: "read-only",
+      approvalPolicy: "never",
+      model: "gpt-5",
+      effort: "high",
+    },
+  });
+  var s = ctx.backend._getDesiredSettingsForTest();
+  assert.strictEqual(s.sandbox, "read-only");
+  assert.strictEqual(s.approvalPolicy, "never");
+  assert.strictEqual(s.model, "gpt-5");
+  assert.strictEqual(s.reasoningEffort, "high");
+});
+
+test("invalid initial codexConfig values are ignored (defaults preserved)", function () {
+  var ctx = makeBackend({
+    codexConfig: {
+      sandbox: "garbage",
+      approvalPolicy: "trust-everything",
+      effort: "ludicrous",
+      // model is a free-form string, no validation list
+    },
+  });
+  var s = ctx.backend._getDesiredSettingsForTest();
+  assert.strictEqual(s.sandbox, "workspace-write");
+  assert.strictEqual(s.approvalPolicy, "on-request");
+  assert.strictEqual(s.reasoningEffort, null);
+});
+
+test("setSandbox / setApprovalPolicy / setModel / setEffort all invoke onCodexConfigChange", function () {
+  var ctx = makeBackend();
+  assert.strictEqual(ctx.persisted.length, 0, "no persistence calls before any setter");
+
+  ctx.backend.setSandbox(null, "read-only");
+  ctx.backend.setApprovalPolicy(null, "never");
+  ctx.backend.setModel(null, "gpt-5-codex");
+  ctx.backend.setEffort(null, "high");
+
+  assert.strictEqual(ctx.persisted.length, 4, "one persist call per setter");
+  // Last snapshot should reflect the cumulative state.
+  var last = ctx.persisted[ctx.persisted.length - 1];
+  assert.deepStrictEqual(last, {
+    sandbox: "read-only",
+    approvalPolicy: "never",
+    model: "gpt-5-codex",
+    effort: "high",
+  });
+});
+
+test("rejected setter values do not trigger persistence", function () {
+  var ctx = makeBackend();
+  ctx.backend.setSandbox(null, "garbage");
+  ctx.backend.setApprovalPolicy(null, "trust-everything");
+  assert.strictEqual(ctx.persisted.length, 0, "invalid setter calls skip persistence");
 });
