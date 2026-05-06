@@ -1537,6 +1537,78 @@ pre.mermaid-error {
 
 .auth-required-btn:hover { background: var(--accent-hover); }
 
+/* --- Codex-specific guidance card --------------------------------------
+   The Codex card is a full-width variant of the auth-required message:
+   shows the exact terminal command (with a Copy button) instead of an
+   "open terminal" auto-flow, plus a Retry button the user clicks after
+   they have completed `codex login` in their own terminal. We never
+   poll for auth state in the background — the user drives the retry. */
+
+.auth-required-msg.codex-auth-card {
+  max-width: 640px;
+  background: color-mix(in srgb, var(--accent2) 6%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--accent2) 35%, transparent);
+}
+.codex-auth-card .auth-required-header {
+  color: var(--accent2);
+}
+.codex-auth-card .codex-auth-cmd-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.codex-auth-card .codex-auth-cmd {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+  user-select: all;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+.codex-auth-card .codex-auth-copy-btn {
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.codex-auth-card .codex-auth-copy-btn:hover {
+  background: var(--input-bg);
+  border-color: var(--accent2);
+}
+.codex-auth-card .codex-auth-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.codex-auth-card .codex-auth-retry-btn {
+  padding: 8px 20px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent2);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.codex-auth-card .codex-auth-retry-btn:hover { filter: brightness(1.1); }
+.codex-auth-card .codex-auth-retry-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 /* ==========================================================================
    Rate Limit Message
    ========================================================================== */

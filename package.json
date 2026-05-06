@@ -13,6 +13,7 @@
     "test": "node --test test/agent-backend.test.js test/codex-jsonrpc.test.js",
     "test:e2e": "node scripts/codex-e2e.js",
     "test:e2e:ui": "node scripts/codex-ui-e2e.js --headless",
+    "test:e2e:auth-card": "node scripts/codex-auth-card-e2e.js --headless",
     "semantic-release": "semantic-release"
   },
   "files": [

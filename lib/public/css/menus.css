@@ -23,6 +23,34 @@
   white-space: nowrap;
 }
 
+/* Outline chip in the topbar that identifies the project's agent backend.
+   Iter 1 only renders for Codex projects; Claude is the default and shows
+   nothing (consistent with "no chip == Claude" everywhere else in Clay). */
+.header-backend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--accent2);
+  color: var(--accent2);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.header-backend-chip.hidden { display: none; }
+.header-backend-chip-model {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
 #header-rename-btn {
   display: flex;
   align-items: center;

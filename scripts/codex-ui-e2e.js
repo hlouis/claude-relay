@@ -261,6 +261,21 @@ function wipePlaygroundSessions() {
   check(!sawAuthCard, "no Claude auth-required card appeared during the turn");
   check(/HELLO/i.test(lastAssistant), "last assistant message contains 'HELLO' (got " + JSON.stringify(lastAssistant.slice(0, 200)) + ")");
 
+  console.log("[ui] step 10: assert topbar Codex chip is visible with the model name");
+  var chipState = await page.evaluate(function () {
+    var chip = document.getElementById("header-backend-chip");
+    if (!chip) return { present: false };
+    return {
+      present: true,
+      hidden: chip.classList.contains("hidden"),
+      text: (chip.textContent || "").trim(),
+    };
+  });
+  check(chipState.present, "#header-backend-chip element exists in DOM");
+  check(!chipState.hidden, "#header-backend-chip is not .hidden on a Codex project");
+  check(/Codex/.test(chipState.text), "chip text starts with 'Codex' (got " + JSON.stringify(chipState.text) + ")");
+  check(/gpt|codex|o\d|model/i.test(chipState.text), "chip text includes a model identifier (got " + JSON.stringify(chipState.text) + ")");
+
   await browser.close();
 
   if (failures.length) {
