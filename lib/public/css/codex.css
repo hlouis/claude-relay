@@ -45,3 +45,99 @@ body.backend-codex #config-thinking-section,
 body.backend-codex #config-beta-section { display: none !important; }
 body.backend-codex #config-codex-sandbox-section,
 body.backend-codex #config-codex-approval-section { display: block; }
+
+/* Iter 4: codex_unavailable card.
+ *
+ * One renderer, kind-driven theming. The base layout matches the existing
+ * .auth-required-msg / .codex-auth-card so the visual language stays
+ * consistent. Different kinds nudge the accent towards either warning
+ * (orange-leaning, our terracotta accent) or info (indigo accent2).
+ *
+ * The selection-highlight rule allows the user to copy stderr/log text
+ * from the View Logs pane.
+ */
+.codex-unavailable-card {
+  margin: 12px 0;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg-elevated, var(--bg));
+  color: var(--fg);
+  max-width: 780px;
+}
+.codex-unavailable-card.codex-unavailable-binary_missing {
+  border-left-color: var(--accent2);
+}
+.codex-unavailable-header {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+.codex-unavailable-detail {
+  font-size: 13px;
+  color: var(--fg-muted, var(--fg));
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.codex-unavailable-hint {
+  font-size: 12px;
+  color: var(--fg-muted, var(--fg));
+  margin-top: 6px;
+  opacity: 0.85;
+}
+.codex-unavailable-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+.codex-unavailable-retry-btn,
+.codex-unavailable-logs-btn {
+  font: inherit;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+.codex-unavailable-retry-btn {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: transparent;
+}
+.codex-unavailable-retry-btn:hover { filter: brightness(1.1); }
+.codex-unavailable-retry-btn:disabled { opacity: 0.6; cursor: progress; }
+.codex-unavailable-logs-btn:hover { background: var(--bg-elevated, var(--bg)); }
+.codex-unavailable-logs {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.codex-unavailable-logs-section + .codex-unavailable-logs-section {
+  margin-top: 10px;
+}
+.codex-unavailable-logs-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted, var(--fg));
+  margin-bottom: 4px;
+  opacity: 0.75;
+}
+.codex-unavailable-logs-pre {
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  line-height: 1.45;
+  max-height: 200px;
+  overflow: auto;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}

@@ -12,9 +12,10 @@
 | 1 | ✅ 完成 | Codex MVP（端到端对话 + selector + 徽标 + chip + 未登录引导卡） |
 | 2 | ✅ 完成 | 审批流对接（workspace-write + approvalsReviewer=user + 来源徽章） |
 | 3 | ✅ 完成（范围调整） | hide 不适用面板 + capability 声明 + 设置抽屉按 backend 分发 + popup 权限模型替换。原 plan 的"顶栏 chip 切 model"和"OPENAI_API_KEY 覆盖"两步**有意跳过**，理由见下文。 |
-| 4-6 | 未开始 | — |
+| 4 | 🟡 部分完成 | 子进程崩溃 + 二进制卸载 + View Logs 已落地（统一 codex_unavailable 数据结构）。401 / 版本检查 / 残留持久化项推迟到下一轮。 |
+| 5-6 | 未开始 | — |
 
-测试覆盖：单元 27/27 + WS e2e 15/15 + UI e2e 25/25（含 Iter 3 step 4 的 13 项 live Playwright 验证）+ Auth-card e2e 9/9 + Approval UI e2e 7/7 + Hide UI e2e 22/22 = **105/105 全绿**。
+测试覆盖：单元 36/36 + WS e2e 14 + UI e2e 25 + Auth-card e2e 8 + Approval UI e2e 7 + Hide UI e2e 22 + Unavailable UI e2e 19 = **131 全绿**。新增 28 项（9 unit + 19 UI）。
 
 ---
 
@@ -225,17 +226,65 @@ project.js  ──► AgentBackend (interface)
 
 ---
 
-### Iteration 4 — 健壮性与错误处理
+### Iteration 4 — 健壮性与错误处理 🟡 部分完成
 
 **目标**：把所有失败态体面化。
 
-- `initialize` 阶段做版本兼容检查；不兼容显示阻断卡片 + `codex update` 提示。
-- 运行中收到 401 / token 失效 → toast + 转回未登录引导。
-- `codex app-server` 子进程崩溃 → 项目页全宽错误卡片 + Retry + View Logs。
-- View Logs：surface `~/.codex/log/` 内最近一段（或我们自己捕获的 stderr 尾部）。
-- Codex 二进制运行时被卸载（创建后才出问题）→ 友好降级。
+#### Step A+B+C+D — 统一的 codex_unavailable 卡片 ✅
 
-**完成标准**：杀掉 codex 子进程、改 auth.json 让其失效、降级二进制版本，三种场景下用户都能从 UI 上理解发生了什么并恢复。
+应用 Linus "消除特殊情况"原则：四种"client cannot proceed"失败态合并为**一个** WS 消息 + **一个**前端组件，按 `kind` 翻文案。
+
+**数据结构**（server → client）：
+```js
+{ type: "codex_unavailable", kind, message, stderrTail?, at }
+// kind ∈ { "crashed", "binary_missing", "auth_lost", "version_incompatible" }
+```
+
+**已落地的两种 kind**：
+- `crashed` — `codex app-server` 子进程意外退出。`onExit` 钩子从原来的 `error+done` 单行升级为 codex_unavailable 卡片，附带最近 8 KB stderr ringbuffer。
+- `binary_missing` — 进程启动时检测到 PATH 上没 `codex`，或运行中 spawn ENOENT（运行时被卸载）。`startClientIfNeeded` 启动前用 `which codex` 预检；`onExit` 内根据 `err.code === "ENOENT"` 区分。
+
+**前端**：
+- `addCodexUnavailableCard(msg)` — 单一渲染器，`kind` 驱动标题/提示/边框 accent 颜色（crashed=accent terracotta，binary_missing=accent2 indigo）
+- View Logs 折叠区 — 同时显示 stderr ringbuffer + `~/.codex/log/` 最新文件 tail（16 KB）。点击时通过 `codex_logs_request` WS 消息按需拉取最新快照
+- Retry 按钮 — 发 `codex_retry` WS 消息，触发后端 `retry()` → `startClientIfNeeded()` → 成功时通过 `model_info{backend:"codex"}` 自然清掉卡片，失败时新一条 codex_unavailable 替换旧卡片
+
+**后端 API 增量**：
+- `codex-backend.js`：`emitUnavailable(kind, message, opts)` / `retry()` / `getLogs()` / `readCodexLogTail(limitBytes)`
+- `codex-jsonrpc.js`：`client.getStderrTail()` 暴露内部 8 KB ringbuffer
+- `project.js`：WS 路由 `codex_retry` / `codex_logs_request` → `codex_logs_response`
+
+**关键决策**：
+- 不持久化 `unavailable` 状态。daemon 重启即清；用户刷新即重新尝试。简单 > 复杂。
+- 不为 codex_unavailable 单独维护 history meta。`sendAndRecord` 走原通道，replay 时旧卡片会再现 — 用户点 Retry 即可清理，与 auth_required 行为一致。
+- 不与 auth_required 合并。两者 UX 完全不同（terminal 引导 vs 进程恢复），强行合并反而生增复杂度。
+- 子进程崩溃后**不自动重启**。Retry 是显式动作 — 用户决定何时重试。这避免了崩溃循环引发的二次问题，符合 Linus "代码为现实服务"哲学。
+
+#### 推迟到下一轮的工作
+
+| 项 | 推迟理由 |
+|---|---|
+| 401 / token 失效在 turn 中途 | 需要识别 codex 运行时错误码（schema 待研究），独立工作量 |
+| `initialize` 阶段版本兼容检查 | codex schema 变更频率不高；当前 initialize 失败抛错的体验不佳但不致命 |
+| Codex 设置（sandbox/approval/model/effort）持久化到 daemon.json | "重开会话生效"现有 UX 自然；持久化不是阻塞项 |
+| `codex_config` 首次连接 echo（前端默认值 vs 用户上次选择） | 同上 |
+| `acceptForSession` 缓存持久化 | Codex 进程内 cache 同会话作用域，重启即重置行为一致 |
+| 网络审批（`networkApprovalContext`）独立 callout | 当前命令文本已含上下文，分类徽标边际收益小 |
+
+**完成标准（已达成的两项）**：
+- ✅ 杀掉 codex 子进程（`kill -9 <pid>`）→ Clay UI 出现 codex_unavailable 卡片，stderr tail 可展开，Retry 按钮起新进程恢复对话
+- ✅ 卸载 codex 二进制（`mv $(which codex) /tmp/`）→ 下次发消息时 binary_missing 卡片出现，恢复二进制后 Retry 即可
+
+**未达成（推迟）**：
+- ❌ 改 auth.json 让其失效 → 当前走原 auth-required 引导卡（不区分 "未登录" vs "token 过期"）
+- ❌ 降级 codex 二进制版本 → initialize 失败仍以 generic error 形式呈现
+
+**实施提交**：尚未提交（用户审阅中）。
+
+**测试基础设施增量**：
+- `test/codex-unavailable.test.js`（9 单元）— emitUnavailable 路由 / retry 状态机 / readCodexLogTail / getLogs 合并
+- `scripts/codex-unavailable-ui-e2e.js`（19 静态 UI）— 卡片 DOM 结构 + kind 驱动 border accent + View Logs 展开/折叠 + Retry 交互性
+- `npm run test:e2e:unavailable` 进 CI 套件
 
 ---
 
@@ -285,11 +334,14 @@ project.js  ──► AgentBackend (interface)
 
 ## 当前下一步
 
-**进入 Iteration 4 — 健壮性与错误处理。**
+**Iter 4 部分完成。下一轮可选两条路：**
 
-Iter 3 完成后的状态：所有 Codex 项目的"happy path"都能跑通，UI 没有欺骗性控件。剩下的事是把所有失败态体面化。
+1. **完成 Iter 4 剩余**（401 失效 + 版本兼容 + 持久化项）— 把"完成标准"三项全部点亮。
+2. **进入 Iter 5**（fork / skills / connectors）— 让 Codex 项目有自己的"质感"。
 
-**Iter 2/3 实测后发现待跟进项**（聚到 Iter 4）：
+推荐先做选项 1 中的"401 失效"一项（最常见线上事故）+ 持久化 sandbox/approval（用户痛感最强），再推进 Iter 5。版本兼容检查频率低可以更晚。
+
+**Iter 2/3 实测后发现待跟进项**（部分聚到 Iter 4 后续）：
 - `acceptForSession` 当前只缓存到 Clay 侧 `session.allowedTools[allowKey]`，重启 daemon 后丢失。Codex 进程内的会话 cache 也是同会话作用域，行为一致 — 但要在 Iter 4 错误处理里明确说明。
 - 网络审批 (`networkApprovalContext`) 走的是同一 `commandExecution/requestApproval` 通道；UI 当前只展示命令文本，不区分 "命令" vs "命令+网络"。Iter 4 加 `networkAccess` 渲染时统一处理。
 - Codex 设置（sandbox / approvalPolicy / model / effort）当前只存实例变量，daemon 重启丢失。如果用户期望持久化，Iter 4 加 daemon.json 字段；否则文档说明"重启即重置为 workspace-write + on-request"。
