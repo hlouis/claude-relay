@@ -11,9 +11,10 @@
 | 0 | ✅ 完成 | agent-backend factory |
 | 1 | ✅ 完成 | Codex MVP（端到端对话 + selector + 徽标 + chip + 未登录引导卡） |
 | 2 | ✅ 完成 | 审批流对接（workspace-write + approvalsReviewer=user + 来源徽章） |
-| 3-6 | 未开始 | — |
+| 3 | ✅ 完成（范围调整） | hide 不适用面板 + capability 声明 + 设置抽屉按 backend 分发 + popup 权限模型替换。原 plan 的"顶栏 chip 切 model"和"OPENAI_API_KEY 覆盖"两步**有意跳过**，理由见下文。 |
+| 4-6 | 未开始 | — |
 
-测试覆盖：单元 19/19 + WS e2e 9/9 + UI e2e 12/12 + Auth-card e2e 9/9 + Approval UI e2e 7/7 = **56/56 全绿**。
+测试覆盖：单元 27/27 + WS e2e 15/15 + UI e2e 25/25（含 Iter 3 step 4 的 13 项 live Playwright 验证）+ Auth-card e2e 9/9 + Approval UI e2e 7/7 + Hide UI e2e 22/22 = **105/105 全绿**。
 
 ---
 
@@ -154,24 +155,73 @@ project.js  ──► AgentBackend (interface)
 
 ---
 
-### Iteration 3 — 设置面板与模型切换
+### Iteration 3 — 设置面板与权限模型分发 ✅
 
-**目标**：Codex 项目可配置；UI 按后端渲染专属设置。
+**目标**：Codex 项目可配置；UI 按后端渲染专属设置；Codex 项目里 Claude-only 控件全部消失。
 
-- AgentBackend 接口增加"声明支持哪些 setting key"的能力。
-- 设置抽屉按后端分发：
-  - Claude 区块：现状不变。
-  - Codex 区块：model、reasoning effort、sandbox policy、approval policy。
-- 顶栏 model chip 可点击切换 Codex 模型（`model/list`）。
-- "API Key 覆盖"折叠区：在引导卡片下方暴露，存进项目 config，作为 `OPENAI_API_KEY` env 传给子进程。
-- 不适用功能在 Codex 项目里**完全 hide**：
-  - Rewind 按钮
-  - Slash commands / Skills 面板（Claude 侧）
-  - Hooks 面板（如有）
+#### Step 1 — Hide 不适用面板 ✅
 
-**完成标准**：用户能在 Codex 项目里切换模型与沙箱策略并立即生效（必要时下个 turn 生效）。
+- `body.backend-codex` 一刀切的 CSS class，挂在 `<body>` 上随 `info.backend` 翻转
+- Codex 项目下 hide：`#skills-btn` / `#new-ralph-btn` / `#slash-menu` / `.msg-user-rewind-btn`
+- Hooks 面板搜索过没有 UI 入口，跳过
+- 实施：`lib/public/css/codex.css` + `lib/public/app.js` 5 行 classList.toggle
 
-**不做**：Codex 原生 skills / connectors UI。
+**Step 1 漏网（Step 4 修补）**：输入栏 config chip popup 当时没意识到也是 Claude-only 入口；Step 4 一并清理。
+
+#### Step 2 — AgentBackend capability 声明 ✅
+
+- 各 backend module 静态 export `SUPPORTED_SETTINGS` 数组
+  - Claude: `["model", "permissionMode", "effort", "betas", "thinking"]`（历史全集，不变）
+  - Codex: `["model", "effort", "sandbox", "approvalPolicy", "apiKeyOverride"]`（permissionMode/betas/thinking 是 Claude-only 概念，故意排除）
+- `getBackendCapabilities(backend)` 返回 `{ settings: [...] }`，slice 副本（mutation-safe）
+- `info` WS 消息带上 `capabilities` 字段；前端缓存到 `currentProjectCapabilities`，ctx 暴露给子模块
+- 显式拒绝运行时 capability discovery 协议：**只有静态导出 + 一次 info 转发**，没有新 RPC
+
+**关键决策**：Claude `SUPPORTED_SETTINGS` 设为现状全集 + 前端默认值也是这一集 → 老路径完全无感。
+
+#### Step 3 — 设置抽屉按 backend 分发 ✅
+
+- HTML：`data-section="defaults"` 内 Claude 5 cards 包进 `.ps-defaults-claude`；并列 `.ps-defaults-codex` 4 cards（Model / Reasoning Effort / Sandbox / Approval Policy）
+- CSS：`body.backend-codex` 翻转两块
+- `populateDefaults()` 按 `ctx.currentBackend` 分发
+- 共享枚举常量：`CODEX_MODELS` 硬编码 3 项（gpt-5-codex / gpt-5 / gpt-4.1）— 跳 model/list RPC；`CODEX_SANDBOX` 3 选 1（schema 实际值，不是 plan 写的 4 选 1）；`CODEX_APPROVAL` 4 选 1
+- codex-backend.js 加 4 个实例变量 `desiredSandbox / desiredApprovalPolicy / desiredReasoningEffort / desiredModel`
+- `thread/start` 改为读这些实例值，默认仍是 workspace-write + on-request（零破坏 Iter 2）
+- 新增 `setSandbox` / `setApprovalPolicy` 方法 + 枚举白名单校验 + emit `codex_config` echo
+- 新增 WS 路由 `set_codex_sandbox` / `set_codex_approval_policy`
+
+**关键决策**：值存实例变量、next thread/start 应用，不持久化到 daemon.json。用户认知"重开会话生效"完全自然，省一层持久化。
+
+#### Step 4 — config chip popup 权限模型替换 ✅（修订原 plan 的 Step 4）
+
+- popup DOM 加 `#config-mode-section` 包装 + 并列 `#config-codex-sandbox-section` / `#config-codex-approval-section`
+- CSS：`body.backend-codex` 下 hide MODE / THINKING / BETA，show SANDBOX / APPROVAL
+- `getModelEffortLevels()` Codex 短路返回 `[low, medium, high]`（drop max — Codex schema 没这级）
+- `updateConfigChip()` chip 文字按 backend 切：Codex 显示 `model · sandbox · effort`
+- `rebuildCodexPermissionsSections()` + `buildCodexSegmented()` onClick 直接 emit Step 3 的 WS 消息
+
+**关键决策**：与设置抽屉共用消息通道，没有为 popup 单独设计 WS 协议。
+
+#### 原 plan Step 4/5 跳过的理由（**有意为之**）
+
+| 原计划 | 跳过理由 |
+|---|---|
+| 顶栏 model chip 可点击展开 model/list dropdown | (a) Codex thread 锁定 model — 切 model = fork 新 thread 丢历史，与"快速切换"的 UX 期望矛盾。(b) 设置抽屉 + popup 已有两个切换入口，顶栏第三个入口冗余且需独立 fork 警告 modal。(c) `model/list` v2 RPC 引入只为了拉一个 3 项列表，复杂度换边际收益 — Iter 5 真要做 fork-with-different-model 时再补。 |
+| OPENAI_API_KEY 覆盖折叠区 | (a) `codex-backend.js` 已读 `opts.openaiApiKey` 并注入子进程 env — 协议层准备完毕。(b) 实际只需一个项目级 env 字段，**已经被现有 Project Settings → Environment 完整覆盖**（用户写 `OPENAI_API_KEY=...` 即可），加专用折叠区是重复 UI。(c) ChatGPT 订阅用户是默认场景，自带 API key 是少数派 — 边际价值不足以新增 UI 入口。 |
+
+**完成标准**：✅ 用户能在 Codex 项目里
+- 切换 sandbox / approval policy（立即对下个 thread 生效，echo 同步两个 UI 入口）
+- 切换 model / reasoning effort（立即对下个 thread 生效）
+- 不再看到 Mode / Plan / Thinking budget / 1M Context / Skills / Rewind / Ralph Loop / slash 等 Claude-only 控件
+
+**实施提交**：尚未提交（用户审阅中）。
+
+**测试基础设施增量**：
+- `scripts/codex-hide-ui-e2e.js` + `npm run test:e2e:hide` — Playwright 静态 UI 测试，22 断言覆盖 hide 矩阵 + popup 替换矩阵
+- `scripts/codex-e2e.js` 加 step 6.5 验证 `set_codex_sandbox/approval_policy` → `codex_config` echo round-trip
+- 单元测试 `test/codex-approval.test.js` 加 3 项覆盖 sandbox/approval 白名单 + model/effort desired params
+
+**修复的隐患（计划外但顺手）**：`scripts/codex-e2e.js` 之前直接 `add_project`，daemon.js 在 path 已注册时 `add_project` 是 no-op，导致 backend 字段不刷新。改为先 `remove_project` 再 `add_project`，与 live verify 同模式对齐。
 
 ---
 
@@ -235,15 +285,12 @@ project.js  ──► AgentBackend (interface)
 
 ## 当前下一步
 
-**进入 Iteration 3 — 设置面板与模型切换。**
+**进入 Iteration 4 — 健壮性与错误处理。**
 
-具体抓手（待开工时再细化）：
-1. AgentBackend 接口暴露"声明支持哪些 setting key"的能力。
-2. 设置抽屉按后端分发：Claude 区块保持现状；Codex 区块加 model / reasoning effort / sandbox policy / approval policy。
-3. 顶栏 model chip 可点击切换 Codex 模型（`model/list`）。
-4. "API Key 覆盖"折叠区在引导卡片下方暴露，存项目 config 作为 `OPENAI_API_KEY` env 注入子进程。
-5. 不适用功能在 Codex 项目里完全 hide：Rewind / Slash commands / Skills / Hooks。
+Iter 3 完成后的状态：所有 Codex 项目的"happy path"都能跑通，UI 没有欺骗性控件。剩下的事是把所有失败态体面化。
 
-**Iter 2 实测后发现待跟进项**（不阻塞 Iter 3）：
+**Iter 2/3 实测后发现待跟进项**（聚到 Iter 4）：
 - `acceptForSession` 当前只缓存到 Clay 侧 `session.allowedTools[allowKey]`，重启 daemon 后丢失。Codex 进程内的会话 cache 也是同会话作用域，行为一致 — 但要在 Iter 4 错误处理里明确说明。
-- 网络审批 (`networkApprovalContext`) 走的是同一 `commandExecution/requestApproval` 通道；UI 当前只展示命令文本，不区分 "命令" vs "命令+网络"。Iter 3 设置面板加 `networkAccess` 开关时再统一处理。
+- 网络审批 (`networkApprovalContext`) 走的是同一 `commandExecution/requestApproval` 通道；UI 当前只展示命令文本，不区分 "命令" vs "命令+网络"。Iter 4 加 `networkAccess` 渲染时统一处理。
+- Codex 设置（sandbox / approvalPolicy / model / effort）当前只存实例变量，daemon 重启丢失。如果用户期望持久化，Iter 4 加 daemon.json 字段；否则文档说明"重启即重置为 workspace-write + on-request"。
+- `codex_config` echo 在 daemon 重启后不会重发首条，前端会显示默认值而非用户上次选择 — 同上。
