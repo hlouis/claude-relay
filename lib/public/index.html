@@ -1128,6 +1128,13 @@
       <button class="add-project-mode-btn" data-mode="create">New project</button>
       <button class="add-project-mode-btn" data-mode="clone">Clone from GitHub</button>
     </div>
+    <div class="add-project-backend" id="add-project-backend">
+      <span class="add-project-backend-label">Backend</span>
+      <div class="add-project-backend-choices" role="radiogroup" aria-label="Agent backend">
+        <button type="button" class="add-project-backend-btn active" data-backend="claude" role="radio" aria-checked="true">Claude</button>
+        <button type="button" class="add-project-backend-btn" data-backend="codex" role="radio" aria-checked="false" data-tooltip="">Codex</button>
+      </div>
+    </div>
     <div class="add-project-body">
       <div class="add-project-panel active" data-panel="existing">
         <div class="add-project-input-wrap">

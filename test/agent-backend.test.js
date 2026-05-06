@@ -66,14 +66,22 @@ test("createAgentBackend throws on unknown backend name", function () {
   );
 });
 
-// Iteration 1 will replace this test with a real codex backend invocation.
-// Until then, asking for "codex" must fail loudly rather than silently fall
-// back to claude — silent fallback would mask integration bugs.
-test("createAgentBackend throws on backend: \"codex\" until iteration 1 lands", function () {
-  assert.throws(
-    function () { createAgentBackend(stubOpts({ backend: "codex" })); },
-    /Unknown agent backend: codex/
-  );
+// Iteration 1: the codex backend is wired in. Construction must not spawn
+// the codex binary or touch the network — it is purely a factory that
+// returns the AgentBackend surface. Spawning happens lazily inside startQuery.
+test("createAgentBackend returns a codex backend exposing the AgentBackend surface", function () {
+  var backend = createAgentBackend(stubOpts({ backend: "codex" }));
+  assert.strictEqual(typeof backend, "object");
+  for (var i = 0; i < REQUIRED_METHODS.length; i++) {
+    var name = REQUIRED_METHODS[i];
+    assert.strictEqual(
+      typeof backend[name],
+      "function",
+      "Codex backend should expose " + name + "()"
+    );
+  }
+  // Codex-specific helper for the auth pre-flight is exposed for diagnostics.
+  assert.strictEqual(typeof backend._checkCodexAuth, "function");
 });
 
 test("createAgentBackend tolerates omitted opts object", function () {
