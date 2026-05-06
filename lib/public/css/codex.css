@@ -1,0 +1,47 @@
+/* codex.css — Backend-specific UI tweaks for Codex projects.
+ *
+ * Iter 3 step 1: hide affordances that are not (yet) applicable to a Codex
+ * project. We prefer hide-via-class over disable-via-attribute so the UI
+ * does not pretend a feature exists. The class lives on <body> and is
+ * toggled in app.js whenever the project info message arrives.
+ *
+ * If/when these features land for Codex (e.g. iter 5's thread/fork as
+ * Rewind, native skills), drop the corresponding rule here.
+ */
+
+/* Sidebar tools */
+body.backend-codex #skills-btn,
+body.backend-codex #new-ralph-btn {
+  display: none !important;
+}
+
+/* Per-message Rewind affordance (Claude SDK only — Codex iter 5 will add
+ * its own thread fork entry point separate from Rewind). */
+body.backend-codex .msg-user-rewind-btn {
+  display: none !important;
+}
+
+/* Slash command popup (Claude-side commands) */
+body.backend-codex #slash-menu {
+  display: none !important;
+}
+
+/* Settings drawer dispatch (iter 3 step 3): swap the Claude defaults block
+ * for the Codex one. Default state shows Claude (preserves existing
+ * behavior); body.backend-codex flips it. */
+.ps-defaults-codex { display: none; }
+body.backend-codex .ps-defaults-claude { display: none; }
+body.backend-codex .ps-defaults-codex { display: block; }
+
+/* Input-bar config chip popup (iter 3 step 4): the popup mirrors the
+ * settings drawer in miniature. For Codex projects we hide the Claude-only
+ * permission/thinking/beta sections and reveal the Codex sandbox+approval
+ * sections in their place. Effort levels (low/medium/high vs Claude's
+ * additional `max`) are filtered in app.js's rebuildEffortBar reader. */
+#config-codex-sandbox-section,
+#config-codex-approval-section { display: none; }
+body.backend-codex #config-mode-section,
+body.backend-codex #config-thinking-section,
+body.backend-codex #config-beta-section { display: none !important; }
+body.backend-codex #config-codex-sandbox-section,
+body.backend-codex #config-codex-approval-section { display: block; }

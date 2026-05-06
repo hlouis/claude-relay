@@ -217,3 +217,52 @@ test("unknown server request method is rejected with -32601", async function () 
   assert.strictEqual(fakeClient._errors.length, 1);
   assert.strictEqual(fakeClient._errors[0].code, -32601);
 });
+
+// --- Iter 3 step 3: Codex defaults setters ---
+
+test("setSandbox stores valid value and rejects invalid ones", function () {
+  var ctx = makeBackend();
+  // Default value preserves iter-2 behavior so existing flows don't change.
+  assert.strictEqual(ctx.backend._getDesiredSettingsForTest().sandbox, "workspace-write");
+
+  ctx.backend.setSandbox(null, "read-only");
+  assert.strictEqual(ctx.backend._getDesiredSettingsForTest().sandbox, "read-only");
+
+  ctx.backend.setSandbox(null, "danger-full-access");
+  assert.strictEqual(ctx.backend._getDesiredSettingsForTest().sandbox, "danger-full-access");
+
+  // Garbage values must not silently overwrite a valid setting.
+  ctx.backend.setSandbox(null, "evil");
+  assert.strictEqual(ctx.backend._getDesiredSettingsForTest().sandbox, "danger-full-access");
+
+  // Echo emitted to the topbar so the UI can rerender the active selection.
+  var lastConfig = ctx.topbar.filter(function (m) { return m.type === "codex_config"; }).pop();
+  assert.ok(lastConfig, "codex_config echo emitted");
+  assert.strictEqual(lastConfig.sandbox, "danger-full-access");
+});
+
+test("setApprovalPolicy stores valid value and rejects invalid ones", function () {
+  var ctx = makeBackend();
+  assert.strictEqual(ctx.backend._getDesiredSettingsForTest().approvalPolicy, "on-request");
+
+  ctx.backend.setApprovalPolicy(null, "never");
+  assert.strictEqual(ctx.backend._getDesiredSettingsForTest().approvalPolicy, "never");
+
+  ctx.backend.setApprovalPolicy(null, "untrusted");
+  assert.strictEqual(ctx.backend._getDesiredSettingsForTest().approvalPolicy, "untrusted");
+
+  ctx.backend.setApprovalPolicy(null, "on-failure");
+  assert.strictEqual(ctx.backend._getDesiredSettingsForTest().approvalPolicy, "on-failure");
+
+  ctx.backend.setApprovalPolicy(null, "trust-everything");
+  assert.strictEqual(ctx.backend._getDesiredSettingsForTest().approvalPolicy, "on-failure");
+});
+
+test("setModel and setEffort populate desired thread/start params", function () {
+  var ctx = makeBackend();
+  ctx.backend.setModel(null, "gpt-5-codex");
+  ctx.backend.setEffort(null, "high");
+  var s = ctx.backend._getDesiredSettingsForTest();
+  assert.strictEqual(s.model, "gpt-5-codex");
+  assert.strictEqual(s.reasoningEffort, "high");
+});

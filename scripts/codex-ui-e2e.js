@@ -230,8 +230,25 @@ function wipePlaygroundSessions() {
     var snap = await page.evaluate(function () {
       // The auth-required card is a strong negative signal — if it shows up
       // for THIS turn, routing went to Claude.
-      var authCard = document.querySelector('[class*="auth-required"], [class*="not-logged-in"]');
-      var authCardVisible = !!(authCard && authCard.offsetParent !== null);
+      // Find auth-required cards but ignore anything inside (or that IS) a
+      // codex-auth-card — Codex projects can transiently render their own
+      // guidance card during warmup, and child elements like
+      // `.auth-required-header` would otherwise match the substring filter.
+      // Only Claude's bare auth-required card means routing went wrong.
+      var candidates = document.querySelectorAll('[class*="auth-required"], [class*="not-logged-in"]');
+      var authCard = null;
+      for (var ci = 0; ci < candidates.length; ci++) {
+        var c = candidates[ci];
+        if (c.offsetParent === null) continue;
+        if (c.closest && c.closest(".codex-auth-card")) continue;
+        authCard = c;
+        break;
+      }
+      var authCardVisible = !!authCard;
+      var authCardDebug = authCard ? {
+        cls: authCard.className,
+        text: (authCard.innerText || "").slice(0, 150),
+      } : null;
       // Heuristic: the assistant-only message text Clay puts in
       // .message-flow leaves user prompts inside a right-aligned bubble
       // with class .user-message-row. The plain-text reply lives directly
@@ -249,7 +266,7 @@ function wipePlaygroundSessions() {
         var t = (r.innerText || "").trim();
         if (t) lastTxt = t;
       }
-      return { lastAssistant: lastTxt, authCardVisible: authCardVisible };
+      return { lastAssistant: lastTxt, authCardVisible: authCardVisible, authCardDebug: authCardDebug };
     });
     lastAssistant = snap.lastAssistant;
     if (snap.authCardVisible) sawAuthCard = true;
@@ -275,6 +292,75 @@ function wipePlaygroundSessions() {
   check(!chipState.hidden, "#header-backend-chip is not .hidden on a Codex project");
   check(/Codex/.test(chipState.text), "chip text starts with 'Codex' (got " + JSON.stringify(chipState.text) + ")");
   check(/gpt|codex|o\d|model/i.test(chipState.text), "chip text includes a model identifier (got " + JSON.stringify(chipState.text) + ")");
+
+  console.log("[ui] step 11: body.backend-codex applied + config chip popup swap (iter 3 step 4)");
+  var bodyState = await page.evaluate(function () {
+    return {
+      bodyHasCodex: document.body.classList.contains("backend-codex"),
+      modeSection: window.getComputedStyle(document.getElementById("config-mode-section") || document.body).display,
+      sandboxSection: window.getComputedStyle(document.getElementById("config-codex-sandbox-section") || document.body).display,
+      approvalSection: window.getComputedStyle(document.getElementById("config-codex-approval-section") || document.body).display,
+      thinkingSection: window.getComputedStyle(document.getElementById("config-thinking-section") || document.body).display,
+    };
+  });
+  check(bodyState.bodyHasCodex, "body.backend-codex class set on a real Codex project");
+  check(bodyState.modeSection === "none", "config popup MODE section hidden under codex (got " + bodyState.modeSection + ")");
+  check(bodyState.thinkingSection === "none", "config popup THINKING section hidden under codex");
+  check(bodyState.sandboxSection !== "none", "config popup SANDBOX section visible under codex (got " + bodyState.sandboxSection + ")");
+  check(bodyState.approvalSection !== "none", "config popup APPROVAL section visible under codex");
+
+  console.log("[ui] step 12: open config chip popup, verify Codex segmented bars rendered with active states");
+  // Use Playwright to actually click the chip and inspect the popover.
+  await page.click("#config-chip");
+  // Give the rebuild functions a tick to populate the bars.
+  await page.waitForTimeout(100);
+  var popState = await page.evaluate(function () {
+    var pop = document.getElementById("config-popover");
+    var sandbox = document.querySelectorAll("#config-codex-sandbox-bar .config-segment-btn");
+    var approval = document.querySelectorAll("#config-codex-approval-bar .config-segment-btn");
+    var sandboxActive = null, approvalActive = null;
+    for (var i = 0; i < sandbox.length; i++) if (sandbox[i].classList.contains("active")) sandboxActive = sandbox[i].dataset.value;
+    for (var j = 0; j < approval.length; j++) if (approval[j].classList.contains("active")) approvalActive = approval[j].dataset.value;
+    return {
+      popVisible: pop && !pop.classList.contains("hidden"),
+      sandboxCount: sandbox.length,
+      approvalCount: approval.length,
+      sandboxActive: sandboxActive,
+      approvalActive: approvalActive,
+    };
+  });
+  check(popState.popVisible, "config popover became visible after click");
+  check(popState.sandboxCount === 3, "popup sandbox bar has 3 buttons (got " + popState.sandboxCount + ")");
+  check(popState.approvalCount === 4, "popup approval bar has 4 buttons (got " + popState.approvalCount + ")");
+  check(popState.sandboxActive === "workspace-write", "default active sandbox = workspace-write (got " + popState.sandboxActive + ")");
+  check(popState.approvalActive === "on-request", "default active approval = on-request (got " + popState.approvalActive + ")");
+
+  console.log("[ui] step 13: click sandbox=read-only, verify WS round-trip + chip label updates");
+  // Reset frame buffer so we can detect the new send precisely.
+  var beforeLen = sentFrames.length;
+  await page.click("#config-codex-sandbox-bar .config-segment-btn[data-value=\"read-only\"]");
+  // Wait for the codex_config echo to flow back and re-render the label.
+  await page.waitForTimeout(300);
+  var newFrames = sentFrames.slice(beforeLen);
+  var sawSandboxSend = false;
+  for (var f = 0; f < newFrames.length; f++) {
+    if (newFrames[f].indexOf("set_codex_sandbox") !== -1 && newFrames[f].indexOf("read-only") !== -1) {
+      sawSandboxSend = true; break;
+    }
+  }
+  check(sawSandboxSend, "WS frame `set_codex_sandbox: read-only` was sent (saw " + newFrames.length + " frames after click)");
+
+  var afterClick = await page.evaluate(function () {
+    var sandbox = document.querySelectorAll("#config-codex-sandbox-bar .config-segment-btn");
+    var active = null;
+    for (var i = 0; i < sandbox.length; i++) if (sandbox[i].classList.contains("active")) active = sandbox[i].dataset.value;
+    var label = (document.getElementById("config-chip-label") || {}).textContent || "";
+    return { active: active, label: label };
+  });
+  check(afterClick.active === "read-only", "sandbox bar active state moved to read-only");
+  check(afterClick.label.indexOf("read-only") !== -1, "chip label now contains 'read-only' (got " + JSON.stringify(afterClick.label) + ")");
+
+  await shot(page, "60-codex-popup-after-sandbox-switch");
 
   await browser.close();
 

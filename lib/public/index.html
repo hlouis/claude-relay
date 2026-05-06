@@ -331,9 +331,18 @@
                     <div class="config-section-label">MODEL</div>
                     <div id="config-model-list" class="config-radio-list"></div>
                   </div>
-                  <div class="config-section">
+                  <div id="config-mode-section" class="config-section">
                     <div class="config-section-label">MODE</div>
                     <div id="config-mode-list" class="config-radio-list"></div>
+                  </div>
+                  <!-- Codex permission model: hidden by default, revealed by body.backend-codex (codex.css). -->
+                  <div id="config-codex-sandbox-section" class="config-section">
+                    <div class="config-section-label">SANDBOX</div>
+                    <div id="config-codex-sandbox-bar" class="config-segmented"></div>
+                  </div>
+                  <div id="config-codex-approval-section" class="config-section">
+                    <div class="config-section-label">APPROVAL</div>
+                    <div id="config-codex-approval-bar" class="config-segmented"></div>
                   </div>
                   <div id="config-effort-section" class="config-section">
                     <div class="config-section-label">EFFORT</div>
@@ -465,49 +474,83 @@
           <!-- Defaults -->
           <div class="ps-section" data-section="defaults">
             <h2>Model</h2>
-            <p class="ps-section-desc">Configure which model to use and how Claude behaves during sessions.</p>
-            <div class="settings-card">
-              <div class="settings-field">
-                <label class="settings-label">Model</label>
-                <div class="settings-hint">Choose the Claude model to use. Larger models are slower but more capable.</div>
-                <div id="ps-model-list" class="settings-model-list"></div>
+            <p class="ps-section-desc" id="ps-defaults-desc">Configure which model to use and how Claude behaves during sessions.</p>
+            <!-- Claude-backend defaults. Hidden under body.backend-codex via codex.css. -->
+            <div class="ps-defaults-claude">
+              <div class="settings-card">
+                <div class="settings-field">
+                  <label class="settings-label">Model</label>
+                  <div class="settings-hint">Choose the Claude model to use. Larger models are slower but more capable.</div>
+                  <div id="ps-model-list" class="settings-model-list"></div>
+                </div>
               </div>
-            </div>
-            <div class="settings-card" id="ps-beta-card" style="display:none">
-              <div class="settings-field">
-                <label class="settings-label">Extended Context (Beta)</label>
-                <div class="settings-hint">Enable 1M token context window for Sonnet models. Allows processing much larger codebases and files, but may increase latency.</div>
-                <label class="settings-toggle-row ps-beta-toggle-row">
-                  <div>
-                    <span class="settings-label">1M Context</span>
+              <div class="settings-card" id="ps-beta-card" style="display:none">
+                <div class="settings-field">
+                  <label class="settings-label">Extended Context (Beta)</label>
+                  <div class="settings-hint">Enable 1M token context window for Sonnet models. Allows processing much larger codebases and files, but may increase latency.</div>
+                  <label class="settings-toggle-row ps-beta-toggle-row">
+                    <div>
+                      <span class="settings-label">1M Context</span>
+                    </div>
+                    <input type="checkbox" id="ps-beta-1m">
+                    <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-card">
+                <div class="settings-field">
+                  <label class="settings-label">Mode</label>
+                  <div class="settings-hint">Controls how Claude handles tool use and file edits.</div>
+                  <div id="ps-mode-list" class="settings-model-list"></div>
+                </div>
+              </div>
+              <div class="settings-card" id="ps-effort-card">
+                <div class="settings-field">
+                  <label class="settings-label">Effort</label>
+                  <div class="settings-hint">Controls how much thinking effort Claude puts into responses. Higher effort means longer, more thorough responses.</div>
+                  <div class="settings-btn-group" id="ps-effort-bar"></div>
+                </div>
+              </div>
+              <div class="settings-card" id="ps-thinking-card">
+                <div class="settings-field">
+                  <label class="settings-label">Thinking</label>
+                  <div class="settings-hint">Controls whether Claude shows its reasoning process. Budget mode lets you set a token limit.</div>
+                  <div class="settings-btn-group" id="ps-thinking-bar"></div>
+                  <div id="ps-thinking-budget-row" class="settings-budget-row" style="display:none">
+                    <label class="settings-budget-label">Budget tokens</label>
+                    <input id="ps-thinking-budget" type="number" class="settings-budget-input" min="1024" max="128000" step="1024" value="10000">
                   </div>
-                  <input type="checkbox" id="ps-beta-1m">
-                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
-                </label>
+                </div>
               </div>
             </div>
-            <div class="settings-card">
-              <div class="settings-field">
-                <label class="settings-label">Mode</label>
-                <div class="settings-hint">Controls how Claude handles tool use and file edits.</div>
-                <div id="ps-mode-list" class="settings-model-list"></div>
+            <!-- Codex-backend defaults. Hidden by default; revealed by body.backend-codex. -->
+            <div class="ps-defaults-codex">
+              <div class="settings-card">
+                <div class="settings-field">
+                  <label class="settings-label">Model</label>
+                  <div class="settings-hint">Choose the Codex model. Switching takes effect on the next session — the active thread keeps its current model until it ends.</div>
+                  <div id="ps-codex-model-list" class="settings-model-list"></div>
+                </div>
               </div>
-            </div>
-            <div class="settings-card" id="ps-effort-card">
-              <div class="settings-field">
-                <label class="settings-label">Effort</label>
-                <div class="settings-hint">Controls how much thinking effort Claude puts into responses. Higher effort means longer, more thorough responses.</div>
-                <div class="settings-btn-group" id="ps-effort-bar"></div>
+              <div class="settings-card">
+                <div class="settings-field">
+                  <label class="settings-label">Reasoning Effort</label>
+                  <div class="settings-hint">Higher effort lets the model think longer before responding.</div>
+                  <div class="settings-btn-group" id="ps-codex-effort-bar"></div>
+                </div>
               </div>
-            </div>
-            <div class="settings-card" id="ps-thinking-card">
-              <div class="settings-field">
-                <label class="settings-label">Thinking</label>
-                <div class="settings-hint">Controls whether Claude shows its reasoning process. Budget mode lets you set a token limit.</div>
-                <div class="settings-btn-group" id="ps-thinking-bar"></div>
-                <div id="ps-thinking-budget-row" class="settings-budget-row" style="display:none">
-                  <label class="settings-budget-label">Budget tokens</label>
-                  <input id="ps-thinking-budget" type="number" class="settings-budget-input" min="1024" max="128000" step="1024" value="10000">
+              <div class="settings-card">
+                <div class="settings-field">
+                  <label class="settings-label">Sandbox</label>
+                  <div class="settings-hint">Limits what the agent can touch on disk. Workspace-write keeps writes inside the project; read-only blocks all writes; danger-full-access removes the boundary entirely.</div>
+                  <div class="settings-btn-group" id="ps-codex-sandbox-bar"></div>
+                </div>
+              </div>
+              <div class="settings-card">
+                <div class="settings-field">
+                  <label class="settings-label">Approval Policy</label>
+                  <div class="settings-hint">When to ask before running commands or writing outside the sandbox. <code>on-request</code> matches Clay's permission flow; <code>never</code> auto-approves everything (use with care).</div>
+                  <div class="settings-btn-group" id="ps-codex-approval-bar"></div>
                 </div>
               </div>
             </div>

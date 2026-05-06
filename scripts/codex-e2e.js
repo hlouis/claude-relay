@@ -92,6 +92,10 @@ function wsRecv(ws, predicate, timeoutMs, label) {
   fs.mkdirSync(PLAYGROUND, { recursive: true });
 
   console.log("[e2e] step 2: register playground as codex project via IPC");
+  // Remove first so a stale registration (e.g. from a prior run that
+  // changed the backend field) can't poison this run — daemon.js's
+  // `add_project` is a no-op when the path is already registered.
+  await ipcSend({ cmd: "remove_project", path: PLAYGROUND }).catch(function () {});
   var ipcResp = await ipcSend({ cmd: "add_project", path: PLAYGROUND, backend: "codex" });
   if (!ipcResp.ok) throw new Error("add_project failed: " + JSON.stringify(ipcResp));
   var slug = ipcResp.slug;
@@ -109,6 +113,20 @@ function wsRecv(ws, predicate, timeoutMs, label) {
   check(info.backend === "codex", "info.backend === 'codex' (got " + info.backend + ")");
   check(info.codex && info.codex.binAvailable === true, "info.codex.binAvailable === true");
   check(info.codex && info.codex.authOk === true, "info.codex.authOk === true (got " + JSON.stringify(info.codex) + ")");
+  // Iter 3 step 2: capabilities forwarded over the wire so the frontend
+  // can render only the controls the backend actually honors.
+  check(
+    info.capabilities && Array.isArray(info.capabilities.settings),
+    "info.capabilities.settings is an array (got " + JSON.stringify(info.capabilities) + ")"
+  );
+  check(
+    info.capabilities && info.capabilities.settings.indexOf("sandbox") !== -1,
+    "Codex capabilities advertise 'sandbox' (got " + JSON.stringify(info.capabilities && info.capabilities.settings) + ")"
+  );
+  check(
+    info.capabilities && info.capabilities.settings.indexOf("permissionMode") === -1,
+    "Codex capabilities do NOT advertise Claude-only 'permissionMode'"
+  );
 
   console.log("[e2e] step 5: create a session and send a short prompt");
   ws.send(JSON.stringify({ type: "new_session" }));
@@ -154,6 +172,25 @@ function wsRecv(ws, predicate, timeoutMs, label) {
   var fullText = deltas.join("");
   console.log("[e2e]   assistant text: " + JSON.stringify(fullText.slice(0, 200)));
   check(/HELLO/i.test(fullText), "response contains 'HELLO'");
+
+  // Iter 3 step 3: verify the Codex-only setter path round-trips through
+  // project.js → codex-backend.setSandbox/setApprovalPolicy → codex_config
+  // echo. We only assert the echo carries the new values; whether they
+  // actually take effect on the next thread/start is covered by unit
+  // tests (see test/codex-approval.test.js).
+  console.log("[e2e] step 6.5: verify codex_config echo for sandbox/approval setters");
+  var echoes = [];
+  ws.on("message", function (raw) {
+    var m; try { m = JSON.parse(raw.toString()); } catch (e) { return; }
+    if (m.type === "codex_config") echoes.push(m);
+  });
+  ws.send(JSON.stringify({ type: "set_codex_sandbox", sandbox: "read-only" }));
+  ws.send(JSON.stringify({ type: "set_codex_approval_policy", approvalPolicy: "never" }));
+  await new Promise(function (r) { setTimeout(r, 500); });
+  check(echoes.length >= 2, "at least 2 codex_config echoes received (got " + echoes.length + ")");
+  var lastEcho = echoes[echoes.length - 1];
+  check(lastEcho && lastEcho.sandbox === "read-only", "echo.sandbox === 'read-only'");
+  check(lastEcho && lastEcho.approvalPolicy === "never", "echo.approvalPolicy === 'never'");
 
   ws.close();
 
