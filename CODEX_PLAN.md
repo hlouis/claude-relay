@@ -4,6 +4,17 @@
 >
 > 总原则：**最小可运行优先**，每个迭代独立可发布、零破坏现有 Claude 用户。
 
+## 当前进度
+
+| 迭代 | 状态 | 提交 |
+|---|---|---|
+| 0 | ✅ 完成 | `81383ed refactor(backend): introduce agent-backend factory` |
+| 1 | ✅ 完成 | `2fef824 feat(codex): add Codex agent backend with isolated test harness`<br>`19a60ed feat(codex): topbar backend chip and not-logged-in guidance card` |
+| 2 | ⏳ 下一个 | — |
+| 3-6 | 未开始 | — |
+
+测试覆盖：单元 12/12 + WS e2e 9/9 + UI e2e 12/12 + Auth-card e2e 9/9 = **42/42 全绿**。
+
 ---
 
 ## 总体架构（一句话）
@@ -41,7 +52,7 @@ project.js  ──► AgentBackend (interface)
 
 ---
 
-### Iteration 0 — 抽象重构（不暴露 Codex）
+### Iteration 0 — 抽象重构（不暴露 Codex） ✅
 
 **目标**：把后端接口显式化。用户视角零变化。
 
@@ -49,46 +60,65 @@ project.js  ──► AgentBackend (interface)
 - 把现有 `lib/sdk-bridge.js` 重构为 `ClaudeBackend`，行为完全等价。
 - `project.js` 通过 `backend` 字段选择实现，默认 `'claude'`。
 - 项目元数据（daemon.json / project record）增加 `backend` 字段；老项目读不到时按 `'claude'` 处理。
-- Session JSONL 文件头加一行 `{"type":"meta","backend":"claude",...}`，老文件无此行时按 `'claude'` 处理。
+- ~~Session JSONL 文件头加一行 `{"type":"meta","backend":"claude",...}`，老文件无此行时按 `'claude'` 处理。~~
+  *实施时简化：未改动 session JSONL 格式。后端归属由 daemon.json 的 `backend` 字段决定，session 文件保持纯消息流；老 session 完全无感。如果未来需要 session 级 backend 切换（fork 跨后端等），再补 meta 行也来得及。*
 
 **完成标准**：所有现有用户行为完全不变。重构后通过手动验证：现有 Claude 项目继续工作、rewind 正常、权限弹窗正常、推送正常。
 
 **不做**：任何 UI 改动、任何 Codex 相关代码。
 
+**实施提交**：`81383ed`（agent-backend factory + sdk-bridge 接通）。
+
 ---
 
-### Iteration 1 — Codex MVP（端到端跑通一次对话）
+### Iteration 1 — Codex MVP（端到端跑通一次对话） ✅
 
 **目标**：用户能创建一个 Codex 项目，发一条消息，看到 Codex 流式回复。**只此而已**。
 
-#### 后端
-- 新建 `lib/codex-backend.js`：
-  - spawn `codex app-server`（stdio + 行分隔 JSON-RPC 2.0）
-  - `initialize` 握手 + 版本探测（不兼容直接报错）
-  - `thread/start` → `turn/start` → 监听 `item/*` / `turn/*` 通知
-  - 事件翻译为 Clay 消息格式写入 JSONL
-  - 子进程崩溃时项目页显示错误（不自动重启）
-- 启动前预检 `~/.codex/auth.json` 是否存在且 `auth_mode` 有值。
+#### 后端 ✅
+- 新建 `lib/codex-backend.js` + `lib/codex-jsonrpc.js`：
+  - spawn `codex app-server`（stdio + 行分隔 JSON-RPC 2.0）✅
+  - ~~`initialize` 握手 + 版本探测（不兼容直接报错）~~ ✅ **已实施，但与计划不同**
+    - **协议事实纠正**：v2 schema 没有独立的 Initialize 消息，但 `codex app-server` 强制要求先发 `initialize`（v1 调用）否则后续 `thread/start` 返回 `Not initialized -32600`。
+    - 实际做法：`initialize` 携带 `clientInfo:{name,version}` + `capabilities:{experimentalApi:true}`，初始化成功后才能用 v2 的 `thread/start` / `turn/start`。
+    - 版本不兼容引导留给 Iter 4。
+  - `thread/start` → `turn/start` → 监听 `item/*` / `turn/*` 通知 ✅
+  - 事件翻译为 Clay 消息格式写入 JSONL（`session_id` / `delta` / `result` / `done` / `error`）✅
+  - 子进程崩溃时项目页显示错误（不自动重启）✅
+- 启动前预检 `~/.codex/auth.json` 是否存在且 `auth_mode`/`tokens` 有值 ✅。
 
-#### 沙箱策略（关键）
-- MVP 阶段把 codex 配置成**不会触发审批**的策略（只读 / 限定 workspace-write 自动通过）。
-- 这样可以在没有权限对接的情况下完整跑通一次对话。
-- 用户能感知的限制：第一版 Codex 项目命令执行能力受限。文档里写清楚。
+#### 沙箱策略（关键）✅
+- 实施值：`thread/start` 传 `sandbox: "read-only"` + `approvalPolicy: "never"`。
+- 收到的任何 ServerRequest（审批）一律 `respondError(-32601, "Approvals not yet supported in this Codex iteration")` 兜底，避免 Iter 1 触碰权限流。
+- 用户能感知的限制：第一版 Codex 项目命令执行能力受限。Iter 2 接入审批后放开。
 
-#### UI
-- New Project 对话框增加 backend segmented control（Claude / Codex）。
-  - 检测不到 `codex` 二进制 → 第二个 radio 灰掉 + tooltip 给安装提示。
-  - 检测不到 `~/.codex/auth.json` → radio 不灰，但点 Create 后进入"未登录引导卡片"。
-- Dashboard 项目卡片：Codex 项目加 outline 文字徽标（用 `--accent2`）。
-- 项目顶栏：显示 `[Codex] {model}` chip。
-- "未登录引导卡片"组件：项目主区域全宽卡片，含 `codex login` 复制按钮 + Retry 按钮（**不轮询**）。
+#### UI ✅
+- New Project 对话框增加 backend segmented control（Claude / Codex）✅
+  - 检测不到 `codex` 二进制 → 第二个 radio 灰掉 + tooltip 给安装提示 ✅
+  - 检测不到 `~/.codex/auth.json` → radio 不灰，submit 后由后端发 `auth_required{source:"codex"}`，前端渲染引导卡片 ✅
+- Dashboard / sidebar 项目卡片：Codex 项目加 outline 文字徽标（用 `--accent2`）✅
+- 项目顶栏：显示 `[Codex] {model}` chip ✅
+- "未登录引导卡片"组件：项目主区域全宽卡片，含 `codex login` 复制按钮 + Retry 按钮（**不轮询**）✅
 
 **完成标准**：
-1. 用户在 dashboard 创建一个 Codex 项目 → 立刻能发消息 → 看到流式回复。
-2. 未登录用户走完引导卡片 → 终端登录 → Retry → 进入正常对话。
-3. 现有 Claude 项目仍然工作如常。
+1. 用户在 dashboard 创建一个 Codex 项目 → 立刻能发消息 → 看到流式回复 ✅（自动化测试覆盖）
+2. 未登录用户走完引导卡片 → 终端登录 → Retry → 进入正常对话 ✅（auth-card e2e 覆盖到 Retry，登录恢复路径手动验证）
+3. 现有 Claude 项目仍然工作如常 ✅（unit 测试覆盖 + 手动验证）
 
 **不做**：权限弹窗对接、设置面板、模型切换、rewind、skills、文件改动审批、token 过期处理、自动重启。
+
+**实施提交**：
+- `2fef824 feat(codex): add Codex agent backend with isolated test harness` — 后端 + selector + 徽标
+- `19a60ed feat(codex): topbar backend chip and not-logged-in guidance card` — chip + guidance card
+
+**额外交付（计划外但是 Iter 1 测试基础设施）**：
+- `scripts/dev-isolated.sh` + `npm run dev:isolated*`：HOME + CLAY_HOME 双重定向的隔离测试环境，`~/.codex` 软链共享，绝不污染开发机的 `~/.clay` / `~/.clayrc`。
+- `scripts/codex-jsonrpc.test.js`：JSON-RPC 客户端 7 个单元测试。
+- `scripts/codex-e2e.js` + `npm run test:e2e`：WS 协议层 9 项断言端到端验证。
+- `scripts/codex-ui-e2e.js` + `npm run test:e2e:ui`：Playwright headless Chromium 12 项断言（含 chip）。
+- `scripts/codex-auth-card-e2e.js` + `npm run test:e2e:auth-card`：临时弄断 auth 跑引导卡 9 项断言。
+
+测试期间真发现并修掉 3 个 bug（详见提交说明）：(1) `app.js#renderProjectList` 把 backend 字段从 iconStripProjects 中漏掉；(2) `createSheetProjectItem` 没渲染徽标（只在 `createMobileProjectItem` 加了）；(3) `codex-e2e.js` 的 IPC 客户端等 socket end 但 daemon 不关连接。
 
 ---
 
@@ -190,4 +220,11 @@ project.js  ──► AgentBackend (interface)
 
 ## 当前下一步
 
-完成本计划评审后，进入 **Iteration 0 重构**。该迭代不暴露任何 Codex 功能，但是后续所有迭代的地基。
+**进入 Iteration 2 — 权限流对接。**
+
+具体抓手：
+1. `lib/codex-backend.js` 把 `handleServerRequest` 从"全部 -32601 拒绝"改成识别审批方法（`execCommandApproval` / `applyPatchApproval` / `commandExecution/requestApproval` / `fileChange/requestApproval`），翻译成 Clay 现有的 `session.pendingPermissions[requestId]` Promise + WS `permission_request` 广播。
+2. 客户端 `accept` / `decline` / `acceptForSession` 翻译成 Codex JSON-RPC 响应（`{decision: "approved"|"denied"|"approved_for_session"}` 之类，需查具体 schema）。
+3. `thread/start` 的 `sandbox` 从 `read-only` 改成 `workspace-write`，`approvalPolicy` 从 `never` 改成 `on-request` 让审批真触发。
+4. 权限 Modal 顶部加来源标签（`Claude` / `Codex`）。
+5. 自动化测试：写一个 e2e 让 Codex 跑会触发审批的命令（如 `git push`），断言权限 Modal 出现 + accept/decline 路径都能继续/中止 turn。
