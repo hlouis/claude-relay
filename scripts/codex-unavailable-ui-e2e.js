@@ -122,6 +122,7 @@ async function shot(page, name) {
 
     window.__crashCard = buildCard("crashed", "Codex app-server exited (code=1)", "panic: out of memory\n");
     window.__binCard = buildCard("binary_missing", "The `codex` binary could not be executed", "");
+    window.__authLostCard = buildCard("auth_lost", "Codex backend returned 401. Run `codex login` then click Retry.", "");
   });
 
   await shot(page, "30-codex-unavailable-cards");
@@ -153,6 +154,22 @@ async function shot(page, name) {
   check(crashed.logsBtnText === "View Logs", "View Logs button present");
   check(crashed.logsPaneDisplay === "none", "logs pane initially hidden");
   check(/3px/.test(crashed.borderLeft), "border-left accent stripe applied (got " + crashed.borderLeft + ")");
+
+  console.log("[unavailable-ui] step 3.5: assert auth_lost variant renders with the right copy");
+  var authLost = await page.evaluate(function () {
+    var card = window.__authLostCard;
+    var det = card.querySelector(".codex-unavailable-detail");
+    var retry = card.querySelector(".codex-unavailable-retry-btn");
+    return {
+      kind: card.getAttribute("data-kind"),
+      detText: det && det.textContent,
+      retryText: retry && retry.textContent,
+    };
+  });
+  check(authLost.kind === "auth_lost", "data-kind === 'auth_lost'");
+  check(/codex login/i.test(authLost.detText),
+    "auth_lost detail mentions `codex login` (got " + JSON.stringify(authLost.detText) + ")");
+  check(authLost.retryText === "Retry", "auth_lost card has Retry button");
 
   console.log("[unavailable-ui] step 4: assert binary_missing variant uses accent2 border-left");
   var bin = await page.evaluate(function () {

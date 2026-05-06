@@ -224,3 +224,152 @@ test("backend exports retry and getLogs on its public surface", function () {
   assert.strictEqual(typeof ctx.backend.retry, "function");
   assert.strictEqual(typeof ctx.backend.getLogs, "function");
 });
+
+// --- Iter 4 follow-up: 401 / auth-loss detection ---
+
+test("looksLike401 recognises canonical auth error codes", function () {
+  var be = makeBackend().backend;
+  // Whitelisted codes (case-insensitive).
+  assert.ok(be._looksLike401ForTest("unauthorized", ""));
+  assert.ok(be._looksLike401ForTest("Unauthorized", ""));
+  assert.ok(be._looksLike401ForTest("token_expired", ""));
+  assert.ok(be._looksLike401ForTest("invalid_auth", ""));
+  assert.ok(be._looksLike401ForTest("authentication_failed", ""));
+  assert.ok(be._looksLike401ForTest("auth_required", ""));
+  assert.ok(be._looksLike401ForTest("401", ""));
+});
+
+test("looksLike401 recognises ChatGPT backend error message phrasing", function () {
+  var be = makeBackend().backend;
+  assert.ok(be._looksLike401ForTest("", "Provided authentication token is expired. Please try signing in again."));
+  assert.ok(be._looksLike401ForTest("", "token_expired in upstream response"));
+  // Bare "401" requires an auth-related neighbour — guards against false
+  // positives from tool outputs that mention 401 as a generic status code.
+  assert.ok(be._looksLike401ForTest("", "got 401 Unauthorized from backend"));
+  assert.ok(be._looksLike401ForTest("", "request returned Unauthorized response"));
+});
+
+test("looksLike401 rejects unrelated errors", function () {
+  var be = makeBackend().backend;
+  assert.ok(!be._looksLike401ForTest("", "stream disconnected"));
+  assert.ok(!be._looksLike401ForTest("", "request timed out"));
+  assert.ok(!be._looksLike401ForTest("internal_error", "something went wrong"));
+  // 401 mentioned in tool output context — without an auth neighbour we
+  // refuse to swallow it as auth_lost.
+  assert.ok(!be._looksLike401ForTest("", "DHL API returned status 401 in shipping label config"));
+  // 402/403/404 should not match the bare-401 path.
+  assert.ok(!be._looksLike401ForTest("", "402 payment required"));
+  assert.ok(!be._looksLike401ForTest("", "403 forbidden"));
+});
+
+test("error notification with 401 routes to auth_lost card", function () {
+  var ctx = makeBackend();
+  // A live session must be present for `error` notifications to be
+  // processed (matches handleNotification's `if (!session) return`).
+  var session = {
+    cliSessionId: "t1",
+    isProcessing: true,
+    pendingPermissions: {},
+    allowedTools: {},
+    history: [],
+    responsePreview: "",
+    streamedText: false,
+    blocks: {},
+    sentToolResults: {},
+    title: "test",
+  };
+  ctx.backend._setCurrentSessionForTest(session);
+  ctx.backend._setClientForTest({
+    isExited: function () { return true; },  // already exited so triggerAuthLost skips client.close
+    request: function () { return Promise.resolve({}); },
+    respond: function () {}, respondError: function () {}, close: function () {},
+  });
+
+  ctx.backend._handleNotificationForTest({
+    method: "error",
+    params: {
+      error: { code: "token_expired", message: "Provided authentication token is expired." },
+      will_retry: false,
+      thread_id: "t1",
+      turn_id: "u1",
+    },
+  });
+
+  var snap = ctx.backend._getUnavailableForTest();
+  assert.ok(snap, "unavailable snapshot present");
+  assert.strictEqual(snap.kind, "auth_lost");
+  // The card replaces the generic error path: no `error` message recorded.
+  var hasGenericError = ctx.sent.some(function (m) { return m.type === "error"; });
+  assert.ok(!hasGenericError, "no generic error message emitted on the auth-lost path");
+  // Turn was completed via done so spinner clears.
+  var hasDone = ctx.sent.some(function (m) { return m.type === "done"; });
+  assert.ok(hasDone, "done dispatched to clear processing state");
+});
+
+test("error notification without 401 keeps the generic error path", function () {
+  var ctx = makeBackend();
+  var session = {
+    cliSessionId: "t1", isProcessing: true, pendingPermissions: {},
+    allowedTools: {}, history: [], responsePreview: "", streamedText: false,
+    blocks: {}, sentToolResults: {}, title: "test",
+  };
+  ctx.backend._setCurrentSessionForTest(session);
+  ctx.backend._setClientForTest({
+    isExited: function () { return true; },
+    request: function () { return Promise.resolve({}); },
+    respond: function () {}, respondError: function () {}, close: function () {},
+  });
+
+  ctx.backend._handleNotificationForTest({
+    method: "error",
+    params: {
+      error: { code: "internal_error", message: "Something went wrong upstream" },
+      will_retry: false,
+      thread_id: "t1",
+      turn_id: "u1",
+    },
+  });
+
+  var snap = ctx.backend._getUnavailableForTest();
+  assert.strictEqual(snap, null, "no unavailable card emitted for non-auth errors");
+  var errMsg = ctx.sent.find(function (m) { return m.type === "error"; });
+  assert.ok(errMsg, "generic error message preserved");
+  assert.ok(/Something went wrong/.test(errMsg.text), "error text passed through");
+});
+
+test("account/chatgptAuthTokens/refresh server request rejects with -32000 and emits auth_lost", function () {
+  var ctx = makeBackend();
+  var session = {
+    cliSessionId: "t1", isProcessing: true, pendingPermissions: {},
+    allowedTools: {}, history: [], responsePreview: "", streamedText: false,
+    blocks: {}, sentToolResults: {}, title: "test",
+  };
+  ctx.backend._setCurrentSessionForTest(session);
+  var errorResponses = [];
+  ctx.backend._setClientForTest({
+    isExited: function () { return true; }, // skip teardown
+    request: function () { return Promise.resolve({}); },
+    respond: function () {},
+    respondError: function (id, code, message) { errorResponses.push({ id: id, code: code, message: message }); },
+    close: function () {},
+  });
+
+  ctx.backend._handleServerRequest({
+    id: 99,
+    method: "account/chatgptAuthTokens/refresh",
+    params: { reason: "unauthorized", previousAccountId: null },
+  });
+
+  // JSON-RPC error response sent back to codex matching the exec-mode pattern.
+  assert.strictEqual(errorResponses.length, 1, "exactly one respondError call");
+  assert.strictEqual(errorResponses[0].id, 99);
+  assert.strictEqual(errorResponses[0].code, -32000);
+  assert.ok(/codex login|not supported/i.test(errorResponses[0].message),
+    "respondError message guides the user to re-login (got: " + errorResponses[0].message + ")");
+
+  var snap = ctx.backend._getUnavailableForTest();
+  assert.ok(snap, "auth_lost snapshot emitted");
+  assert.strictEqual(snap.kind, "auth_lost");
+  assert.ok(/codex login/i.test(snap.message),
+    "auth_lost message guides user to re-login (got: " + snap.message + ")");
+});
