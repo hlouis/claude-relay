@@ -207,6 +207,8 @@
           <button id="header-rename-btn" type="button" title="Rename session"><i data-lucide="pencil"></i></button>
           <!-- Iter 5b: Codex thread fork. Hidden until info.capabilities.threadFork === true. -->
           <button id="header-fork-btn" type="button" title="Fork conversation into a new thread" hidden><i data-lucide="git-branch"></i></button>
+          <!-- Iter 6a: Codex skills picker. Hidden until info.capabilities.codexSkills === true. -->
+          <button id="header-codex-skills-btn" type="button" title="Browse available Codex skills" hidden><i data-lucide="sparkles"></i></button>
         </div>
         <div id="todo-sticky" class="hidden"></div>
         <div id="ralph-sticky" class="hidden"></div>
@@ -304,6 +306,8 @@
     <div id="input-area">
       <div id="input-wrapper">
         <div id="slash-menu"></div>
+        <!-- Iter 6a: Codex skill autocomplete (inline, anchored above input). -->
+        <div id="codex-skill-menu"></div>
         <div id="at-menu"></div>
         <div id="suggestion-chips" class="hidden"></div>
         <div id="input-row">

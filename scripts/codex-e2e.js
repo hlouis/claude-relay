@@ -112,9 +112,13 @@ function wsRecv(ws, predicate, timeoutMs, label) {
   // pre-fork state if we wait until step 6.8. We don't read the array
   // until needed; just make sure it's populated.
   var sessionLists = [];
+  // Iter 6a: capture every codex_skills frame so we can verify the warmup
+  // fetch fired and that user-initiated refresh round-trips.
+  var skillFrames = [];
   ws.on("message", function (raw) {
     var m; try { m = JSON.parse(raw.toString()); } catch (e) { return; }
     if (m.type === "session_list" && Array.isArray(m.sessions)) sessionLists.push(m);
+    if (m.type === "codex_skills") skillFrames.push(m);
   });
 
   console.log("[e2e] step 4: wait for info + codex_config first echo (collected together)");
@@ -144,6 +148,11 @@ function wsRecv(ws, predicate, timeoutMs, label) {
   check(
     info && info.capabilities && info.capabilities.settings.indexOf("permissionMode") === -1,
     "Codex capabilities do NOT advertise Claude-only 'permissionMode'"
+  );
+  // Iter 6a: codexSkills capability flag present on Codex projects.
+  check(
+    info && info.capabilities && info.capabilities.codexSkills === true,
+    "info.capabilities.codexSkills === true for Codex backend"
   );
 
   console.log("[e2e] step 4.5: verify codex_config first-connection echo carries defaults");
@@ -346,6 +355,46 @@ function wsRecv(ws, predicate, timeoutMs, label) {
     }
   }
 
+  // Iter 6a: codex skills WS round-trip. Three things to assert:
+  //   1. The warmup fetch fired automatically and we received at least one
+  //      codex_skills frame on the original connection.
+  //   2. request_codex_skills triggers a fresh broadcast to all clients.
+  //   3. The frame shape matches our protocol (skills array, errors array,
+  //      cwd, fetchedAt).
+  console.log("[e2e] step 6.9: codex_skills warmup + manual refresh round-trip");
+  // Give warmup a generous beat — fetchSkills is best-effort and runs in
+  // the background after initialize. Most environments respond within a
+  // second; CI may need more.
+  var warmupDeadline = Date.now() + 5000;
+  while (skillFrames.length === 0 && Date.now() < warmupDeadline) {
+    await new Promise(function (r) { setTimeout(r, 100); });
+  }
+  check(skillFrames.length >= 1,
+    "warmup auto-fetched skills (got " + skillFrames.length + " codex_skills frames)");
+  if (skillFrames.length > 0) {
+    var f = skillFrames[0];
+    check(Array.isArray(f.skills), "codex_skills.skills is an array");
+    check(Array.isArray(f.errors), "codex_skills.errors is an array");
+    check(typeof f.cwd === "string" && f.cwd.length > 0,
+      "codex_skills.cwd is populated (got " + f.cwd + ")");
+    check(typeof f.fetchedAt === "number",
+      "codex_skills.fetchedAt is a number");
+  }
+
+  // Manual refresh — backend should issue a fresh skills/list and emit a
+  // new frame. We don't assert the count strictly because skills/changed
+  // notifications during the test could fire concurrently; we just assert
+  // we observe an additional frame.
+  var beforeRefresh = skillFrames.length;
+  ws.send(JSON.stringify({ type: "request_codex_skills", forceReload: true }));
+  var refreshDeadline = Date.now() + 5000;
+  while (skillFrames.length <= beforeRefresh && Date.now() < refreshDeadline) {
+    await new Promise(function (r) { setTimeout(r, 100); });
+  }
+  check(skillFrames.length > beforeRefresh,
+    "request_codex_skills triggers a fresh codex_skills broadcast (frames before=" +
+    beforeRefresh + " after=" + skillFrames.length + ")");
+
   ws.close();
   await new Promise(function (r) { setTimeout(r, 200); });
 
@@ -360,13 +409,25 @@ function wsRecv(ws, predicate, timeoutMs, label) {
     ws2.once("error", reject);
   });
   // Single-drain to avoid the listener-removal race that would otherwise
-  // drop codex_config when wsRecv resolves on info.
-  var reconnectDrain = await wsRecv(ws2, function (m) { return m.type === "codex_config"; }, 5000, "codex_config on reconnect");
-  var reconnectEcho = reconnectDrain.message;
-  check(reconnectEcho.sandbox === "read-only",
-    "reconnect echo sandbox === 'read-only' (got " + reconnectEcho.sandbox + ")");
-  check(reconnectEcho.approvalPolicy === "never",
-    "reconnect echo approvalPolicy === 'never' (got " + reconnectEcho.approvalPolicy + ")");
+  // drop codex_config when wsRecv resolves on info. Iter 6a: extend the
+  // predicate to wait for codex_skills (sent AFTER codex_config in the
+  // connect handler) so we capture both replays in one drain.
+  var reconnectDrain = await wsRecv(ws2, function (m) { return m.type === "codex_skills"; }, 5000, "codex_skills replay on reconnect");
+  var reconnectEcho = null;
+  for (var ri = 0; ri < reconnectDrain.all.length; ri++) {
+    if (reconnectDrain.all[ri].type === "codex_config") { reconnectEcho = reconnectDrain.all[ri]; break; }
+  }
+  check(reconnectEcho !== null, "reconnect drain contains the codex_config echo");
+  if (reconnectEcho) {
+    check(reconnectEcho.sandbox === "read-only",
+      "reconnect echo sandbox === 'read-only' (got " + reconnectEcho.sandbox + ")");
+    check(reconnectEcho.approvalPolicy === "never",
+      "reconnect echo approvalPolicy === 'never' (got " + reconnectEcho.approvalPolicy + ")");
+  }
+  // Iter 6a: codex_skills replay on reconnect — predicate guaranteed match.
+  var reconnectSkillFrame = reconnectDrain.message;
+  check(Array.isArray(reconnectSkillFrame.skills),
+    "reconnect codex_skills.skills is an array (got " + typeof reconnectSkillFrame.skills + ")");
   ws2.close();
 
   console.log("[e2e] step 7: cleanup — remove project");

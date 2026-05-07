@@ -181,3 +181,199 @@ body.backend-codex #config-codex-approval-section { display: block; }
   word-break: break-all;
   user-select: text;
 }
+
+/* ==========================================================================
+   Iter 6a — Codex skills picker
+   --------------------------------------------------------------------------
+   Two surfaces share a single visual language: the inline autocomplete
+   (#codex-skill-menu, anchored above the input bar) and the header panel
+   (#codex-skills-panel, popover under the title-bar button). Both use the
+   same scope-badge palette so users learn the system→user→project gradient
+   in one place.
+   ========================================================================== */
+
+/* Scope badges — three-tone scheme. Per design:
+ *   project  → --accent (terracotta)  — "this project's own skills"
+ *   user     → --accent2 (indigo)     — info/status (your global library)
+ *   system   → --fg-muted (neutral)   — codex CLI internals
+ */
+.codex-skill-scope {
+  display: inline-block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  vertical-align: middle;
+}
+.codex-skill-scope-project {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb, 200, 100, 80), 0.08);
+}
+.codex-skill-scope-user {
+  color: var(--accent2);
+  border-color: var(--accent2);
+  background: rgba(var(--accent2-rgb, 80, 100, 200), 0.08);
+}
+.codex-skill-scope-system {
+  color: var(--text-muted, var(--fg-muted));
+  border-color: var(--border);
+  background: transparent;
+}
+
+.codex-skill-disabled-mark {
+  display: inline-block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, var(--fg-muted));
+  margin-left: 4px;
+  opacity: 0.7;
+}
+
+/* --- Inline autocomplete menu (above input bar) --- */
+#codex-skill-menu {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  margin-bottom: 8px;
+  box-shadow: 0 -4px 24px rgba(var(--shadow-rgb), 0.4);
+  z-index: 10;
+}
+#codex-skill-menu.visible { display: block; }
+
+.codex-skill-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  cursor: pointer;
+  gap: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.codex-skill-item:last-child { border-bottom: none; }
+.codex-skill-item:hover,
+.codex-skill-item.active {
+  background: rgba(var(--overlay-rgb), 0.05);
+}
+.codex-skill-item-name {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 14px;
+  font-family: "Roboto Mono", monospace;
+  flex-shrink: 0;
+}
+.codex-skill-item-desc {
+  color: var(--text-muted, var(--fg-muted));
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- Header popover panel --- */
+.codex-skills-panel {
+  position: fixed;
+  z-index: 200;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(var(--shadow-rgb), 0.45);
+  max-height: 70vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.codex-skills-panel.hidden { display: none; }
+.codex-skills-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.codex-skills-panel-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+.codex-skills-refresh-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+.codex-skills-refresh-btn:hover { background: var(--bg-elevated, var(--bg)); }
+
+.codex-skills-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted, var(--fg-muted));
+  font-size: 13px;
+}
+.codex-skills-errors {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(var(--accent-rgb, 200, 100, 80), 0.06);
+}
+.codex-skills-error-row {
+  font-size: 12px;
+  color: var(--fg);
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+.codex-skills-error-row:last-child { margin-bottom: 0; }
+
+.codex-skills-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 6px 0;
+}
+.codex-skills-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-subtle);
+  font: inherit;
+  color: var(--fg);
+}
+.codex-skills-row:last-child { border-bottom: none; }
+.codex-skills-row:hover,
+.codex-skills-row:focus {
+  background: rgba(var(--overlay-rgb), 0.05);
+  outline: none;
+}
+.codex-skills-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.codex-skills-row .codex-skill-name {
+  font-family: "Roboto Mono", monospace;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--accent);
+}
+.codex-skill-desc {
+  font-size: 12px;
+  color: var(--text-muted, var(--fg-muted));
+  line-height: 1.4;
+  word-break: break-word;
+}

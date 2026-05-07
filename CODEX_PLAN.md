@@ -15,9 +15,10 @@
 | 4 | ✅ 完成 | 子进程崩溃 + 二进制卸载 + 401/token 失效 + 版本兼容 + View Logs + 设置持久化 + 首次连接 echo。统一 codex_unavailable 数据结构覆盖四种失败 kind。 |
 | 5a | ❌ KILLED | Command amendments — 实施完后 live verify 证伪：Codex v2 协议不支持 modifyCommand-on-accept，response 结构仅 `decision`。所有改动 revert，基线恢复。Postmortem 见 Iter 5a 章节。 |
 | 5b | ✅ 完成 | Thread Fork — protocol probe 17/17 + 单元 7 + WS e2e 6 + UI e2e 13 + **live verify 真 Codex 全绿**。HEAD-only fork + thread/resume 切回旧 thread。 |
-| 6 | 未开始 | — |
+| 6a | ✅ 完成 | Skills 接入 — protocol probe 17/17 + 单元 12 + WS e2e 9 + UI e2e 32 + **live verify 真 Codex 差分证明通过**。`skills/list` + `skills/changed` 自动刷新 + `$name` 注入 + 顶栏 panel + `$`/`/` 双触发内联 picker + 三色 scope 徽标。 |
+| 6 | 未开始 | MCP / Connectors / Turn diff/plan / OAuth / Compare Mode 等远期项 |
 
-测试覆盖：单元 53 + WS e2e 26 + UI e2e 25 + Auth-card e2e 8 + Approval UI e2e 7 + Hide UI e2e 22 + Unavailable UI e2e 25 = **166 全绿**。Iter 4 共新增 63 项（17 unit + 46 e2e/UI）。
+测试覆盖：单元 72 + WS e2e 39 + Fork UI e2e 13 + Skills UI e2e 32 + Auth-card e2e 8 + Approval UI e2e 7 + Hide UI e2e 22 + Unavailable UI e2e 25 + Generic UI 25 = **243 全绿**。Iter 6a 新增 53 项（12 unit + 9 WS + 32 UI）+ 协议 probe 17 项 + live verify 差分证明。
 
 ---
 
@@ -501,15 +502,121 @@ Linus 判断：留着 textarea + Allow 按钮 = UI 撒谎（用户改了命令�
 
 ---
 
-### Iteration 6（Codex 原生特性 + Phase 2）
+### Iteration 6a — Skills 接入 ✅
 
-**目标**：让 Codex 项目有自己的"质感"。从 Iter 5 推迟过来的 + 原 Iter 6 的远期项。
+**目标**：Codex 项目用户能 (1) 看到当前 cwd 下可用 skills 列表，(2) 选 skill 注入到下一条消息，(3) skill 文件改动自动刷新。范围严格收敛为只读 + 调用，不做 enable/disable / 安装 / 卸载 / marketplace。
+
+##### Protocol probe 结果（`scripts/codex-skills-protocol-probe.js` — 17/17 ✅）
+
+实施前先跑 probe，沿用 5a 教训。
+
+| 验证项 | 结果 |
+|---|---|
+| `skills/list` 方法存在（codex-cli 0.128.0 验证） | ✅ |
+| 空 params → 默认当前 session cwd | ✅ |
+| 显式 `cwds: [...]` 一一对应 | ✅ |
+| `forceReload: true` 工作 | ✅ |
+| 多 cwd → 一个 entry 对应一个 cwd | ✅ |
+| 不存在的 cwd → **不报错**，返回 entry（codex 容错） | ✅ |
+| SkillMetadata schema 完整：`name/description/enabled/scope/path/interface` | ✅ |
+| `skills/changed` 通知 schema = 空 params | ✅ schema 文档确认 |
+
+本机实测：5 个 skill，全 `scope:"system"`（codex CLI 内置：imagegen / openai-docs / plugin-creator / skill-creator / skill-installer）。
+
+##### 关键协议事实
+
+| 维度 | 事实 |
+|---|---|
+| 调用语法 | **`$<skill-name>`** at start-of-text（codex 服务端 + 模型双层解析） |
+| 输入 item | turn/start `input` 数组追加 `{ type: "skill", name, path }` |
+| 配套文档 | `codex-rs/app-server/README.md` "Skills" 段 + `core-skills/src/mention_counts.rs` |
+| Slash command 与 skill 的关系 | **无关**。codex TUI 的 `/` 菜单是终端层 50 条硬编码命令（`/quit` `/clear` `/theme` 等），与服务端协议无关 |
+
+##### 设计决策（实测后敲定）
+
+| 问题 | 决策 |
+|---|---|
+| Picker 触发字符 | **`$` 和 `/` 双触发**（与 codex TUI 视觉一致），但都开同一个 skills-only picker。Codex internal commands 不进 6a |
+| 选中后输入 | 始终 `$<name> `（与 codex 服务端协议对齐；`/` 是 codex TUI 翻译过的，最终发的还是 `$`） |
+| Scope 徽标颜色 | **project=`--accent`（terracotta）**，user=`--accent2`（indigo），system=`--fg-muted`（灰） |
+| 持久化 | **不做**。skills 是派生数据，每次进项目重 fetch + 监听 `skills/changed` |
+| 全新用户引导 | **不做**。Empty state 简单显示"No skills available" |
+| Toggle enabled/disabled | **6b 候选**。需要 `skills/config/write` 二次 probe |
+| 安装 / marketplace | **不做**。`marketplace/*` / `plugin/*` 上游标 "under development; do not call" |
+
+##### 后端
+
+- **`lib/codex-backend.js`**：
+  - `skillsCache` 字段 + `skillsFetchInflight` 去重
+  - `fetchSkills(forceReload)` 调 `skills/list { cwds: [cwd] }` → 翻译为 `codex_skills` WS 帧
+  - `handleNotification` 新增 `skills/changed` 分支 → 自动 fetchSkills(false)
+  - `warmup` 后追加 best-effort `fetchSkills`
+  - `findSkillMention` 从 user text 解析 `$<name>` 前缀
+  - `applySkillInjection` 在 turn/start input 数组追加 skill input item
+  - `getSkills()` 返回快照供 first-connection echo 复用
+  - 处理 `skills/list` -32601 错误 → 发 `method_not_found` error 帧给 UI 渲染升级提示
+- **`lib/project.js`**：
+  - 路由 `request_codex_skills { forceReload }` → `sdk.fetchSkills`
+  - Connect handler 在 codex_config 之后 echo 缓存的 codex_skills 给重连客户端
+- **`lib/agent-backend.js`**：
+  - `getBackendCapabilities` 增加 `codexSkills: true/false` 标志
+
+##### 前端
+
+- **新文件 `lib/public/modules/codex-skills.js`**：
+  - 头部 panel popover（discovery 列表 + Refresh 按钮）
+  - 内联 autocomplete `#codex-skill-menu`（`$`/`/` 触发）
+  - 共享 `applySkillSelection(name)`：输入框前缀 `$<name> `
+  - `detectSkillTrigger` 检测光标位置在 `$query` 或 `/query` token 内
+- **`lib/public/modules/input.js`**：键盘事件路由 codex skill picker（Tab/Enter/Up/Down/Esc），与现有 slash-menu 共存
+- **`lib/public/index.html`**：`#header-codex-skills-btn` + `#codex-skill-menu` 容器
+- **`lib/public/css/codex.css`**：scope 三色徽标 + panel + 内联 menu 样式
+- **`lib/public/app.js`**：模块 init + WS case `codex_skills` + capability gate
+
+##### 测试
+
+| 测试 | 文件 | 项 | 状态 |
+|---|---|---|---|
+| 协议 probe | `scripts/codex-skills-protocol-probe.js` | 17 | ✅ 进 CI（`npm run test:skills-protocol`） |
+| 单元 | `test/codex-skills.test.js` | 12 | ✅（fetchSkills RPC / dedupe / -32601 / changed → re-fetch / parser / injection / snapshot） |
+| WS e2e | `scripts/codex-e2e.js` step 6.9 | 6 + 1 reconnect echo | ✅ 真 daemon round-trip |
+| UI e2e | `scripts/codex-skills-ui-e2e.js` | 32 | ✅（按钮可见 / panel 渲染 / 行点击 / `$` 触发 / Tab 提交 / `/` 触发 / Esc 关闭 / scope 三色 / Claude 项目按钮 hide） |
+| Live verify | `scripts/codex-skills-live-verify.js` | 1 差分 | ✅ 真 codex API：control 不提 `quick_validate`，skill-injected 提 → 证明 SKILL.md 内容真到达模型 |
+
+##### 完成标准（全部达成）
+
+1. ✅ Codex 项目顶栏 Skills 按钮（Claude 项目无）
+2. ✅ 点击 → panel 显示 5 个 system skill（本机当前状态）+ 三色 scope 徽标
+3. ✅ 点 skill → 输入框 prefill `$<name> ` + panel 关闭
+4. ✅ 直接键入 `$` 或 `/` → 内联 picker 展开 + 键盘导航
+5. ✅ 发消息（含 `$name `）→ codex 真识别 skill 并应用 SKILL.md（live verify 差分通过）
+6. ✅ 重连 → 缓存 skills 立即 replay，picker 不为空
+7. ✅ Claude 项目零回归（Skills 按钮 hidden、原 `#skills-btn` Claude 模块仍工作）
+
+##### 5a / 5b 教训应用
+
+- ✅ Protocol probe 先行（17/17）→ 提前发现"用户当前只装 system skills"，empty state 设计有据
+- ✅ 单元测试 fake client → 不烧 API
+- ✅ WS e2e 真 daemon → 协议契约
+- ✅ Live verify 真 codex → 差分证明（control vs skill-injected 反应不同）
+- ✅ 不向 codex 发未约定字段；schema 严格按文档 + Rust 源码
+
+---
+
+### Iteration 6（远期项 + Phase 2）
+
+**目标**：让 Codex 项目有自己的"质感"。从 Iter 5/6a 推迟过来的 + 原 Iter 6 的远期项。
 
 #### 从 Iter 5 推迟过来的
 
-- **Skills**：拉 `skills/list`，在侧边栏给 Codex 项目独立 skills 面板。**前置 spike**：`skills/list` 真实返回什么？空 / demo only / 真有用户 skill？根据 spike 结果决定是做完整 UI 还是砍掉。
+- ~~**Skills**：✅ Iter 6a 完成~~
 - **Connectors / Apps / MCP server 管理**：独立子系统，需要 Iter 4 级别的健壮性工作量（配置持久化、生命周期、错误态）。**前置评估**：调查有多少 Codex 用户在 Clay 里管 MCP，再决定优先级。
 - **Turn diff / plan**：先在 `codex-backend.js` 把 `turn/diff/updated` / `turn/plan/updated` 事件 silently 翻译进现有消息流（不渲染独立 UI）。后续若有用户反馈再做专属 UI。
+
+#### 6a 推迟到 6b 候选
+
+- **Skill toggle (enabled/disabled)**：`skills/config/write` 二次 probe + 状态持久化设计。
+- **Per-message anchor fork (5b 推迟来的)**：`thread/rollback` probe + UX 重设计。
 
 #### 原 Iter 6（远期）
 
@@ -543,16 +650,16 @@ Linus 判断：留着 textarea + Allow 按钮 = UI 撒谎（用户改了命令�
 
 ## 当前下一步
 
-**Iter 5b 完成。Iter 6 候选项待评估。**
+**Iter 6a 完成。Iter 6b 候选项待评估（toggle skills / per-message fork anchor / MCP / turn diff…）。**
 
-5b 实施成果（应用了 5a 的所有教训）：
-- protocol probe 先行（17/17）→ 提前发现"无 fork-point 锚点"，避免设计错误
-- 单元测试 7 项（fake client 验证 RPC 翻译契约）
-- WS e2e 6 项（真 daemon round-trip）
-- UI e2e 13 项（Playwright DOM + WS 帧验证）
-- **Live verify 真 Codex API 通过**：source 设 ALPHA → fork 记得 ALPHA → 切回 source 仍记得 ALPHA
+6a 实施成果（继续应用 5a/5b 的教训）：
+- protocol probe 先行（17/17）→ 提前确认 `skills/list` 可用 + 用户实际 skill 状态
+- 单元测试 12 项（fake client 验证 RPC 翻译 + parser + injection 契约）
+- WS e2e 9 项（真 daemon round-trip + 重连 echo）
+- UI e2e 32 项（Playwright 双 surface 验证 + scope 三色 + Claude 负面测试）
+- **Live verify 差分证明**：control 回复不提 `quick_validate.py`，skill-injected 回复明确提及 → 证明 `$skill-creator` 真把 SKILL.md 内容送到了模型
 
-总测试数：60 单元 + 32 WS e2e + 13 fork UI e2e + 22 hide UI + 25 unavailable UI + 8 approval UI + 25 generic UI + 8 auth-card = **193 全绿**。
+总测试数：72 单元 + 39 WS e2e + 13 fork UI + 32 skills UI + 22 hide UI + 25 unavailable UI + 8 approval UI + 25 generic UI + 8 auth-card = **244 全绿**。
 
 ---
 

@@ -10,7 +10,7 @@
     "dev:isolated": "bash scripts/dev-isolated.sh",
     "dev:isolated:stop": "bash scripts/dev-isolated.sh --shutdown",
     "dev:isolated:clean": "bash scripts/dev-isolated.sh --clean",
-    "test": "node --test test/agent-backend.test.js test/codex-jsonrpc.test.js test/codex-approval.test.js test/codex-unavailable.test.js test/codex-fork.test.js",
+    "test": "node --test test/agent-backend.test.js test/codex-jsonrpc.test.js test/codex-approval.test.js test/codex-unavailable.test.js test/codex-fork.test.js test/codex-skills.test.js",
     "test:e2e": "node scripts/codex-e2e.js",
     "test:e2e:ui": "node scripts/codex-ui-e2e.js --headless",
     "test:e2e:auth-card": "node scripts/codex-auth-card-e2e.js --headless",
@@ -18,9 +18,12 @@
     "test:e2e:hide": "node scripts/codex-hide-ui-e2e.js --headless",
     "test:e2e:unavailable": "node scripts/codex-unavailable-ui-e2e.js --headless",
     "test:e2e:fork": "node scripts/codex-fork-ui-e2e.js --headless",
+    "test:e2e:skills": "node scripts/codex-skills-ui-e2e.js --headless",
     "test:fork-protocol": "node scripts/codex-fork-protocol-probe.js",
+    "test:skills-protocol": "node scripts/codex-skills-protocol-probe.js",
     "verify:approval-live": "node scripts/codex-approval-live-verify.js",
     "verify:fork-live": "node scripts/codex-fork-live-verify.js",
+    "verify:skills-live": "node scripts/codex-skills-live-verify.js",
     "semantic-release": "semantic-release"
   },
   "files": [
