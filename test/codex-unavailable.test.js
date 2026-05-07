@@ -337,6 +337,68 @@ test("error notification without 401 keeps the generic error path", function () 
   assert.ok(/Something went wrong/.test(errMsg.text), "error text passed through");
 });
 
+// --- Iter 4 follow-up: version compatibility ---
+
+test("looksLikeVersionIncompatError matches -32601 and method-not-found phrasing", function () {
+  var be = makeBackend().backend;
+  // JSON-RPC standard "Method not found" code is the canonical signal.
+  assert.ok(be._looksLikeVersionIncompatErrorForTest({ code: -32601, message: "Method not found" }));
+  // Wording variations that older CLIs might emit instead of -32601.
+  assert.ok(be._looksLikeVersionIncompatErrorForTest({ message: "unknown method initialize" }));
+  assert.ok(be._looksLikeVersionIncompatErrorForTest({ message: "Method not found" }));
+  // Mixed case message tolerated.
+  assert.ok(be._looksLikeVersionIncompatErrorForTest({ message: "UNKNOWN METHOD: thread/start" }));
+});
+
+test("looksLikeVersionIncompatError ignores unrelated rejections", function () {
+  var be = makeBackend().backend;
+  assert.ok(!be._looksLikeVersionIncompatErrorForTest(null));
+  assert.ok(!be._looksLikeVersionIncompatErrorForTest({}));
+  assert.ok(!be._looksLikeVersionIncompatErrorForTest({ code: -32600, message: "Invalid Request" }));
+  assert.ok(!be._looksLikeVersionIncompatErrorForTest({ code: -32700, message: "Parse error" }));
+  assert.ok(!be._looksLikeVersionIncompatErrorForTest({ message: "auth.json missing" }));
+  assert.ok(!be._looksLikeVersionIncompatErrorForTest({ message: "stream disconnected" }));
+});
+
+test("looksLikeIncompatInitializeResponse flags missing or malformed responses", function () {
+  var be = makeBackend().backend;
+  // Null / non-object / array.
+  assert.ok(be._looksLikeIncompatInitializeResponseForTest(null));
+  assert.ok(be._looksLikeIncompatInitializeResponseForTest("ok"));
+  // Missing each required field one at a time.
+  var full = { userAgent: "codex/1.0", codexHome: "/home/u/.codex", platformFamily: "unix", platformOs: "macos" };
+  assert.ok(!be._looksLikeIncompatInitializeResponseForTest(full), "full response is compatible");
+  var keys = ["userAgent", "codexHome", "platformFamily", "platformOs"];
+  for (var i = 0; i < keys.length; i++) {
+    var partial = Object.assign({}, full);
+    delete partial[keys[i]];
+    assert.ok(be._looksLikeIncompatInitializeResponseForTest(partial),
+      "missing " + keys[i] + " flagged as incompat");
+  }
+  // Empty-string fields are also rejected (defensive — schema says non-empty).
+  var blank = Object.assign({}, full, { userAgent: "" });
+  assert.ok(be._looksLikeIncompatInitializeResponseForTest(blank), "empty userAgent flagged");
+});
+
+test("triggerVersionIncompatible emits the card and tears down the client", function () {
+  var ctx = makeBackend();
+  var closes = 0;
+  ctx.backend._setClientForTest({
+    isExited: function () { return false; }, // alive — we expect close()
+    request: function () { return Promise.resolve({}); },
+    respond: function () {}, respondError: function () {},
+    close: function () { closes++; },
+  });
+
+  ctx.backend._triggerVersionIncompatibleForTest("Codex 0.1 too old");
+
+  var snap = ctx.backend._getUnavailableForTest();
+  assert.ok(snap, "unavailable snapshot present");
+  assert.strictEqual(snap.kind, "version_incompatible");
+  assert.ok(/too old/i.test(snap.message), "user-supplied detail surfaces in the card");
+  assert.strictEqual(closes, 1, "client.close() called once for graceful teardown");
+});
+
 test("account/chatgptAuthTokens/refresh server request rejects with -32000 and emits auth_lost", function () {
   var ctx = makeBackend();
   var session = {

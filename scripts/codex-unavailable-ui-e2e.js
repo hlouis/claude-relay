@@ -123,6 +123,7 @@ async function shot(page, name) {
     window.__crashCard = buildCard("crashed", "Codex app-server exited (code=1)", "panic: out of memory\n");
     window.__binCard = buildCard("binary_missing", "The `codex` binary could not be executed", "");
     window.__authLostCard = buildCard("auth_lost", "Codex backend returned 401. Run `codex login` then click Retry.", "");
+    window.__versionCard = buildCard("version_incompatible", "Codex CLI returned an old `initialize` schema. Run `codex update` and click Retry.", "");
   });
 
   await shot(page, "30-codex-unavailable-cards");
@@ -170,6 +171,22 @@ async function shot(page, name) {
   check(/codex login/i.test(authLost.detText),
     "auth_lost detail mentions `codex login` (got " + JSON.stringify(authLost.detText) + ")");
   check(authLost.retryText === "Retry", "auth_lost card has Retry button");
+
+  console.log("[unavailable-ui] step 3.6: assert version_incompatible variant renders with the right copy");
+  var verCard = await page.evaluate(function () {
+    var card = window.__versionCard;
+    var det = card.querySelector(".codex-unavailable-detail");
+    var retry = card.querySelector(".codex-unavailable-retry-btn");
+    return {
+      kind: card.getAttribute("data-kind"),
+      detText: det && det.textContent,
+      retryText: retry && retry.textContent,
+    };
+  });
+  check(verCard.kind === "version_incompatible", "data-kind === 'version_incompatible'");
+  check(/codex update/i.test(verCard.detText),
+    "version_incompatible detail mentions `codex update` (got " + JSON.stringify(verCard.detText) + ")");
+  check(verCard.retryText === "Retry", "version_incompatible card has Retry button");
 
   console.log("[unavailable-ui] step 4: assert binary_missing variant uses accent2 border-left");
   var bin = await page.evaluate(function () {
