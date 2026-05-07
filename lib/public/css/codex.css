@@ -21,10 +21,18 @@ body.backend-codex .msg-user-rewind-btn {
   display: none !important;
 }
 
-/* Slash command popup (Claude-side commands) */
-body.backend-codex #slash-menu {
-  display: none !important;
-}
+/*
+ * Slash command popup.
+ *
+ * Iter 3 step 1 hid this entirely on Codex projects because the dynamic
+ * `slash_commands` frame (Claude SDK skills) doesn't apply. Iter 4
+ * follow-up reverts the global hide — the universal builtin commands
+ * (/clear, /context, /usage, /status) are useful on Codex too. The
+ * Claude-only `/rewind` is filtered list-side in modules/input.js so the
+ * menu still opens but only shows commands that actually do something.
+ *
+ * (Intentionally left blank — the Claude-only command filter lives in JS.)
+ */
 
 /* Settings drawer dispatch (iter 3 step 3): swap the Claude defaults block
  * for the Codex one. Default state shows Claude (preserves existing

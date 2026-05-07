@@ -489,6 +489,32 @@
   box-shadow: 0 0 4px var(--success);
 }
 
+/*
+ * Iter 4 — session backend badge.
+ *
+ * Renders only on sessions whose backend differs from the project default
+ * (sidebar.js gates the DOM). Visual goal: a low-contrast pill that says
+ * "this one is unusual" without screaming for attention. Uses --accent2
+ * (Clay's indigo "info" accent per DESIGN.md) — same hue used for status
+ * chips, so the badge reads as informational, not actionable.
+ */
+.session-backend-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 6px;
+  padding: 0 5px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--accent2-soft, rgba(94, 129, 244, 0.15));
+  color: var(--accent2, #5e81f4);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
 /* Session unread badge */
 .session-unread-badge {
   position: absolute;

@@ -481,6 +481,24 @@
           <div class="ps-section" data-section="defaults">
             <h2>Model</h2>
             <p class="ps-section-desc" id="ps-defaults-desc">Configure which model to use and how Claude behaves during sessions.</p>
+            <!--
+              Iter 4: project default backend. Always visible (NOT gated by
+              body.backend-codex) because the toggle exists precisely to
+              flip between backends — hiding the Codex option behind a body
+              class that only appears when Codex is already active would
+              defeat the point. The settings-card pattern matches the rest
+              of the panel; the buttons are wired in modules/project-settings.js.
+            -->
+            <div class="settings-card" id="ps-backend-card">
+              <div class="settings-field">
+                <label class="settings-label">Backend</label>
+                <div class="settings-hint">Choose the agent backend for new sessions. Existing sessions keep their original backend — switching here only affects sessions you create from now on.</div>
+                <div class="settings-btn-group" id="ps-backend-bar" role="radiogroup" aria-label="Project default backend">
+                  <button type="button" class="settings-btn ps-backend-btn" data-value="claude" role="radio" aria-checked="false">Claude</button>
+                  <button type="button" class="settings-btn ps-backend-btn" data-value="codex" role="radio" aria-checked="false">Codex</button>
+                </div>
+              </div>
+            </div>
             <!-- Claude-backend defaults. Hidden under body.backend-codex via codex.css. -->
             <div class="ps-defaults-claude">
               <div class="settings-card">

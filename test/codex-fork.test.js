@@ -80,6 +80,9 @@ function makeBackend(extraOpts) {
       var s = makeSession(sessionCounter, {
         ownerId: (opts && opts.ownerId) || null,
         sessionVisibility: (opts && opts.sessionVisibility) || "shared",
+        // Capture the backend opt verbatim so tests can assert that fork
+        // explicitly inherited it from the source session (immutable rule).
+        backend: opts && opts.backend,
       });
       createdSessions.push(s);
       return s;
@@ -151,6 +154,30 @@ test("forkActiveThread issues thread/fork with the source threadId and adopts th
   src.history.push({ type: "user_message", text: "after-fork" });
   assert.strictEqual(newSession.history.length, 2,
     "fork captured a snapshot of source history at fork time");
+});
+
+test("forkActiveThread passes source session's backend to createSession (immutable inheritance)", async function () {
+  // Invariant: a forked session's backend MUST be the source's backend,
+  // NOT the project's current default. After iter 4 (mutable project
+  // backend), a project that flipped from codex to claude could otherwise
+  // produce a "claude" stamp on a thread that only makes sense to codex.
+  // The data-layer enforcement is what we check here — we look at the opts
+  // passed to sm.createSession and verify backend === source.backend.
+  var ctx = makeBackend();
+  var fake = makeFakeClient({
+    "thread/fork": function () {
+      return { thread: { id: "thread-fork-2", forkedFromId: "thread-source" } };
+    },
+  });
+  ctx.backend._setClientForTest(fake);
+
+  var src = makeSession(1, { cliSessionId: "thread-source", backend: "codex" });
+  ctx.backend._setCurrentSessionForTest(src);
+  ctx.backend._setActiveThreadIdForTest("thread-source");
+
+  var newSession = await ctx.backend.forkActiveThread(src);
+  assert.strictEqual(newSession.backend, "codex",
+    "forked session must inherit the source session's backend");
 });
 
 test("forkActiveThread refuses when the source session is missing", async function () {
