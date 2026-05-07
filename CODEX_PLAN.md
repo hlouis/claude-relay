@@ -12,10 +12,12 @@
 | 1 | ✅ 完成 | Codex MVP（端到端对话 + selector + 徽标 + chip + 未登录引导卡） |
 | 2 | ✅ 完成 | 审批流对接（workspace-write + approvalsReviewer=user + 来源徽章） |
 | 3 | ✅ 完成（范围调整） | hide 不适用面板 + capability 声明 + 设置抽屉按 backend 分发 + popup 权限模型替换。原 plan 的"顶栏 chip 切 model"和"OPENAI_API_KEY 覆盖"两步**有意跳过**，理由见下文。 |
-| 4 | 🟡 部分完成 | 子进程崩溃 + 二进制卸载 + View Logs 已落地（统一 codex_unavailable 数据结构）。401 / 版本检查 / 残留持久化项推迟到下一轮。 |
-| 5-6 | 未开始 | — |
+| 4 | ✅ 完成 | 子进程崩溃 + 二进制卸载 + 401/token 失效 + 版本兼容 + View Logs + 设置持久化 + 首次连接 echo。统一 codex_unavailable 数据结构覆盖四种失败 kind。 |
+| 5a | ❌ KILLED | Command amendments — 实施完后 live verify 证伪：Codex v2 协议不支持 modifyCommand-on-accept，response 结构仅 `decision`。所有改动 revert，基线恢复。Postmortem 见 Iter 5a 章节。 |
+| 5b | ✅ 完成 | Thread Fork — protocol probe 17/17 + 单元 7 + WS e2e 6 + UI e2e 13 + **live verify 真 Codex 全绿**。HEAD-only fork + thread/resume 切回旧 thread。 |
+| 6 | 未开始 | — |
 
-测试覆盖：单元 36/36 + WS e2e 14 + UI e2e 25 + Auth-card e2e 8 + Approval UI e2e 7 + Hide UI e2e 22 + Unavailable UI e2e 19 = **131 全绿**。新增 28 项（9 unit + 19 UI）。
+测试覆盖：单元 53 + WS e2e 26 + UI e2e 25 + Auth-card e2e 8 + Approval UI e2e 7 + Hide UI e2e 22 + Unavailable UI e2e 25 = **166 全绿**。Iter 4 共新增 63 项（17 unit + 46 e2e/UI）。
 
 ---
 
@@ -226,11 +228,9 @@ project.js  ──► AgentBackend (interface)
 
 ---
 
-### Iteration 4 — 健壮性与错误处理 🟡 部分完成
+### Iteration 4 — 健壮性与错误处理 ✅ 完成
 
 **目标**：把所有失败态体面化。
-
-#### Step A+B+C+D — 统一的 codex_unavailable 卡片 ✅
 
 应用 Linus "消除特殊情况"原则：四种"client cannot proceed"失败态合并为**一个** WS 消息 + **一个**前端组件，按 `kind` 翻文案。
 
@@ -240,73 +240,282 @@ project.js  ──► AgentBackend (interface)
 // kind ∈ { "crashed", "binary_missing", "auth_lost", "version_incompatible" }
 ```
 
-**已落地的两种 kind**：
-- `crashed` — `codex app-server` 子进程意外退出。`onExit` 钩子从原来的 `error+done` 单行升级为 codex_unavailable 卡片，附带最近 8 KB stderr ringbuffer。
-- `binary_missing` — 进程启动时检测到 PATH 上没 `codex`，或运行中 spawn ENOENT（运行时被卸载）。`startClientIfNeeded` 启动前用 `which codex` 预检；`onExit` 内根据 `err.code === "ENOENT"` 区分。
+#### 第一轮 Step A+B+C+D ✅ — codex_unavailable 框架（commits 60c03cd）
 
 **前端**：
-- `addCodexUnavailableCard(msg)` — 单一渲染器，`kind` 驱动标题/提示/边框 accent 颜色（crashed=accent terracotta，binary_missing=accent2 indigo）
-- View Logs 折叠区 — 同时显示 stderr ringbuffer + `~/.codex/log/` 最新文件 tail（16 KB）。点击时通过 `codex_logs_request` WS 消息按需拉取最新快照
-- Retry 按钮 — 发 `codex_retry` WS 消息，触发后端 `retry()` → `startClientIfNeeded()` → 成功时通过 `model_info{backend:"codex"}` 自然清掉卡片，失败时新一条 codex_unavailable 替换旧卡片
+- `addCodexUnavailableCard(msg)` — 单一渲染器，`kind` 驱动标题/提示/边框 accent 颜色
+- View Logs 折叠区 — 同时显示 stderr ringbuffer + `~/.codex/log/` 最新文件 tail（16 KB）
+- Retry 按钮 — 发 `codex_retry` WS 消息，触发后端 `retry()`；成功时通过 `model_info{backend:"codex"}` 自然清掉卡片
 
-**后端 API 增量**：
-- `codex-backend.js`：`emitUnavailable(kind, message, opts)` / `retry()` / `getLogs()` / `readCodexLogTail(limitBytes)`
-- `codex-jsonrpc.js`：`client.getStderrTail()` 暴露内部 8 KB ringbuffer
-- `project.js`：WS 路由 `codex_retry` / `codex_logs_request` → `codex_logs_response`
+**后端 API**：`emitUnavailable` / `retry` / `getLogs` / `readCodexLogTail` / `client.getStderrTail()`
 
-**关键决策**：
-- 不持久化 `unavailable` 状态。daemon 重启即清；用户刷新即重新尝试。简单 > 复杂。
-- 不为 codex_unavailable 单独维护 history meta。`sendAndRecord` 走原通道，replay 时旧卡片会再现 — 用户点 Retry 即可清理，与 auth_required 行为一致。
-- 不与 auth_required 合并。两者 UX 完全不同（terminal 引导 vs 进程恢复），强行合并反而生增复杂度。
-- 子进程崩溃后**不自动重启**。Retry 是显式动作 — 用户决定何时重试。这避免了崩溃循环引发的二次问题，符合 Linus "代码为现实服务"哲学。
+落地的 kind：
+- `crashed` — onExit 钩子升级为 codex_unavailable 卡片，附带 8 KB stderr ringbuffer
+- `binary_missing` — `which codex` 预检 + spawn ENOENT 检测
 
-#### 推迟到下一轮的工作
+#### 第二轮 — 持久化 + 401 + 版本兼容 ✅（commits b8661ab / 2fb26b2 / 5319857 / *task4*）
+
+**Task #1 持久化 `b8661ab`**：sandbox/approval/model/effort 写入 daemon.json 的 `codexConfig` 字段。`makePersistCodexConfig(slug)` 闭包穿透 4 层（daemon → server → project → backend）。setters 调 `onCodexConfigChange` 回调；启动时 `codex-backend` 用白名单 seeding `desired*` + `sm.currentModel/currentEffort`。
+
+**Task #2 首次连接 echo `2fb26b2`**：connect handler 在 info 之后 sendTo `codex_config{sandbox, approvalPolicy, model, effort}`，前端 case 扩展处理新字段。修复 e2e 测试 `wsRecv` listener 移除竞态（用单 drain 模式）。
+
+**Task #3 401 / token 失效 `5319857`**：识别两种 401 surfacing：
+- ServerRequest `account/chatgptAuthTokens/refresh` — codex 主动 ping 客户端刷新 token；我们用 `-32000 + reason` 拒绝（match codex exec 模式）
+- Notification `error` 携带 `{code, message}` — 用 `looksLike401` 保守白名单识别（unauthorized / token_expired / "Provided authentication token is expired" / 邻近 auth 关键词的 401）
+
+两条路都触发 `triggerAuthLost(detail)` → `emitUnavailable("auth_lost")` + `gracefulTeardown=true` + `client.close()`，下次 Retry 重读 auth.json。**协议契约通过直读 openai/codex Rust 源码确认**（`account.rs` ChatgptAuthTokensRefreshReason::Unauthorized + `notification.rs` ErrorNotification + `exec/lib.rs` reject_server_request 模式）。
+
+**Task #4 版本兼容 `*task4*`**：识别两种 incompat：
+- `initialize` 拒绝 — JSON-RPC `-32601` ("Method not found") 或消息含 "unknown method"
+- `initialize` 成功但 response 缺必填字段（`userAgent` / `codexHome` / `platformFamily` / `platformOs` per `app-server-protocol/v1.rs InitializeResponse`）
+
+两条路都触发 `triggerVersionIncompatible(detail)` → 同样的 graceful teardown 流程。**不做 semver 比较** — codex 不通过 initialize 暴露版本，硬编码阈值会腐烂。我们信任协议契约："如果说我们约定的 schema，就兼容；说不出来，就不兼容"。
+
+#### 关键决策
+
+- 不持久化 `unavailable` 状态。daemon 重启即清。
+- 不为 codex_unavailable 单独维护 history meta。replay 时旧卡片再现，用户点 Retry 即可清理（与 auth_required 行为一致）。
+- 不与 auth_required 合并。两者 UX 完全不同（terminal 引导 vs 进程恢复）。
+- 子进程崩溃后**不自动重启**。Retry 是显式动作。
+- `gracefulTeardown` flag 让 onExit 不覆盖更具体的 auth_lost / version_incompatible 卡片。
+- **从不 hard-code codex 版本号阈值**。判定 100% 基于"它说不说我们的协议"。
+
+#### 完成标准（全部达成）
+
+- ✅ `kill -9 codex` → crashed 卡片 + stderr tail + Retry 起新进程
+- ✅ `mv $(which codex) /tmp/` → binary_missing 卡片，恢复后 Retry 成功
+- ✅ 改 auth.json 让其失效 → auth_lost 卡片（手动验证可由用户跑；CI 用单元测试覆盖协议翻译契约）
+- ✅ 降级 codex 二进制版本 → version_incompatible 卡片（识别 initialize 拒绝或 malformed response）
+
+#### 推迟到 Iter 5 或文档化
 
 | 项 | 推迟理由 |
 |---|---|
-| 401 / token 失效在 turn 中途 | 需要识别 codex 运行时错误码（schema 待研究），独立工作量 |
-| `initialize` 阶段版本兼容检查 | codex schema 变更频率不高；当前 initialize 失败抛错的体验不佳但不致命 |
-| Codex 设置（sandbox/approval/model/effort）持久化到 daemon.json | "重开会话生效"现有 UX 自然；持久化不是阻塞项 |
-| `codex_config` 首次连接 echo（前端默认值 vs 用户上次选择） | 同上 |
-| `acceptForSession` 缓存持久化 | Codex 进程内 cache 同会话作用域，重启即重置行为一致 |
+| `acceptForSession` 缓存持久化 | Codex 进程内 cache 同会话作用域，重启即重置行为一致 — 文档化即可 |
 | 网络审批（`networkApprovalContext`）独立 callout | 当前命令文本已含上下文，分类徽标边际收益小 |
 
-**完成标准（已达成的两项）**：
-- ✅ 杀掉 codex 子进程（`kill -9 <pid>`）→ Clay UI 出现 codex_unavailable 卡片，stderr tail 可展开，Retry 按钮起新进程恢复对话
-- ✅ 卸载 codex 二进制（`mv $(which codex) /tmp/`）→ 下次发消息时 binary_missing 卡片出现，恢复二进制后 Retry 即可
+#### 测试基础设施增量
 
-**未达成（推迟）**：
-- ❌ 改 auth.json 让其失效 → 当前走原 auth-required 引导卡（不区分 "未登录" vs "token 过期"）
-- ❌ 降级 codex 二进制版本 → initialize 失败仍以 generic error 形式呈现
-
-**实施提交**：尚未提交（用户审阅中）。
-
-**测试基础设施增量**：
-- `test/codex-unavailable.test.js`（9 单元）— emitUnavailable 路由 / retry 状态机 / readCodexLogTail / getLogs 合并
-- `scripts/codex-unavailable-ui-e2e.js`（19 静态 UI）— 卡片 DOM 结构 + kind 驱动 border accent + View Logs 展开/折叠 + Retry 交互性
+- `test/codex-unavailable.test.js`：19 单元（9 emitUnavailable/retry/getLogs 框架 + 6 401 检测 + 4 版本兼容检测）
+- `test/codex-approval.test.js`：+7 单元（持久化 4 个 + 首次 echo 3 个）
+- `scripts/codex-unavailable-ui-e2e.js`：25 静态 UI（22 框架 + 3 auth_lost/version_incompatible kind 文案）
+- `scripts/codex-e2e.js`：26 WS e2e（含 Task #1 daemon.json 持久化 5 项 + Task #2 首次/重连 echo 6 项）
 - `npm run test:e2e:unavailable` 进 CI 套件
 
 ---
 
-### Iteration 5 — Codex 原生特性
+### Iteration 5 — Codex 审批闭环 + Thread Fork
 
-**目标**：暴露 Codex 独有能力，开始让 Codex 项目有自己的"质感"，不再只是"Claude 的影子"。
+**总目标**：让 Codex 项目从"能用"变成"用得顺手"。
 
-- **Thread Fork**：在消息流上提供 Codex 专属的 Fork 入口（不是把它伪装成 Rewind）。映射 `thread/fork`。
-- **Skills**：拉 `skills/list`，在侧边栏给 Codex 项目独立 skills 面板。
-- **Connectors / Apps**：`app/list`、MCP server 管理对接到设置面板。
-- **Turn diff / plan**：如果 UI 价值明确，在消息流里渲染 `turn/diff/updated` 与 `turn/plan/updated`；否则继续翻译进现有消息流。
-- **Command amendments**：权限 Modal 增加"修改命令"输入框（仅 Codex 命令审批时显示）。
-
-**完成标准**：Codex 项目用户至少使用过 fork 或 skills 中的一个特性；该特性的 UI 不污染 Claude 项目。
+**范围收缩说明**：原 plan 列了 5 个特性（fork / skills / connectors / turn diff / amendments），实测后按"数据结构改动 × 真实价值"重排：
+- amendments 设计阶段以为是 Iter 2 审批流的自然补完 → **5a 实测后撤回**（见下文 postmortem）
+- thread/fork 是 Codex 用户的核心工作流，且现有 multi-session 基础设施可直接复用 → **5b**
+- skills / connectors / turn diff 推 Iter 6（理由见 Iter 6 章节）
 
 ---
 
-### Iteration 6（Phase 2，可选 / 远期）
+#### Iteration 5a — Command amendments ❌ KILLED（live verify postmortem）
+
+**结论**：**Codex v2 协议不支持"修改命令再批准"的语义**。本子迭代撤回，所有代码变动 revert，相关 plan 仅保留作为踩坑记录。
+
+##### Live verify 怎么抓到的
+
+5a 单元测试 4/4 + UI e2e 7/7 全绿后跑 `scripts/codex-approval-live-verify.js`：
+- 让 Codex 跑 `echo ORIGINAL_CONTENT > /Users/louis/.../target.txt`
+- 弹审批 → textarea 改成 `echo AMENDED_CONTENT > .../target.txt`
+- 点 Allow Once → doneCode === 0、permission_resolved 收到、turn 干净结束
+- **文件内容仍是 `ORIGINAL_CONTENT`**
+
+我们发的字节是 `{ decision: "accept", modifiedCommand: "echo AMENDED_CONTENT > ..." }`，Codex 的 serde 默认不开 `deny_unknown_fields`，把 `modifiedCommand` 静默 drop 后用原 argv 执行。单元测试只能证明"我们发出的字节"，证明不了"接收方读不读"。
+
+##### 协议层证据（直读 openai/codex Rust 源码）
+
+`codex-rs/app-server-protocol/src/protocol/v2/item.rs:43-64`：
+```rust
+#[serde(rename_all = "camelCase")]
+pub enum CommandExecutionApprovalDecision {
+    Accept, AcceptForSession,
+    AcceptWithExecpolicyAmendment { execpolicy_amendment: ExecPolicyAmendment },
+    ApplyNetworkPolicyAmendment { network_policy_amendment: NetworkPolicyAmendment },
+    Decline, Cancel,
+}
+
+pub struct CommandExecutionRequestApprovalResponse {
+    pub decision: CommandExecutionApprovalDecision,  // 仅此一个字段
+}
+```
+
+- response 结构**只有 decision**，没有任何位置可以传修改后的命令
+- `AcceptWithExecpolicyAmendment` 的 `execpolicy_amendment: Vec<String>` 是**未来命中规则的 prefix pattern**（用于让以后匹配的命令自动批准），不是当次执行的 argv 替换 — 当次仍跑原 argv
+- `ApplyNetworkPolicyAmendment` 是网络访问 host allow/deny，无关 argv
+- v2 → v1 翻译层（`bespoke_event_handling.rs:1944-1981`）确认：`Accept` → `ReviewDecision::Approved`，agent core 用请求时捕获的 `ExecApprovalRequestEvent.command` 原样执行
+
+**没有任何上游协议路径能让客户端在批准时改命令**。
+
+##### 为什么不绕过去
+
+考虑过的 workaround 全部砍掉：
+
+| 方案 | 砍掉理由 |
+|---|---|
+| Decline + 注入新 user message "请改用 X 命令" | 完全不同的 UX。模型可能不听、可能换思路、可能再提原命令。把它套在"Modify & Approve"按钮上 = UI 撒谎 |
+| 在 Clay 侧拦截 + 重写 codex 进程内 turn state | 与已显示的 approval card 不一致；codex 端 turn state 仍持有原命令；脆且打破 Linus 的 "kernel serves user, not the other way around" |
+| Patch codex 二进制 | 不维护 fork |
+
+Linus 判断：留着 textarea + Allow 按钮 = UI 撒谎（用户改了命令但跑的是原命令）= **比没有更糟**。撤回。
+
+##### 撤回内容
+
+| 文件 | revert 状态 |
+|---|---|
+| `lib/codex-backend.js` | `respondApproval` 签名 + accept 路径 extra 透传 → 全删 |
+| `lib/project.js` | `permission_response` modifiedCommand 透传 → 全删 |
+| `lib/public/modules/tools.js` | textarea 渲染 + `sendPermissionResponse` 第四参 → 全删 |
+| `lib/public/css/codex.css` | `.permission-amend-*` 样式块 → 全删 |
+| `test/codex-approval.test.js` | 4 新单元 → 全删（53 单元基线恢复） |
+| `scripts/codex-approval-ui-e2e.js` | 7 新断言 → 全删（8 基线恢复） |
+| `scripts/codex-approval-live-verify.js` | amendment 步骤 → 全删（基线恢复） |
+
+##### 教训
+
+1. **协议假设必须 live verify 才算数**。"plan 写得了" ≠ "上游协议支持"。
+2. 单元测试边界是"我们的字节"。线另一端 schema 漂移 / serde 静默 drop / 默认值兜底，单元测试一律抓不到。
+3. 对外部协议下手前**先读 schema 源码，不读 docstring，不靠推测**。
+4. plan 自洽不等于现实可行。原 plan "amendments 是 Iter 2 的自然补完，零数据模型改动" 这条判断错在没核 v2 schema。
+
+---
+
+##### 顺手清理（仍要做 — 与 5a 解耦）
+- Iter 4 末尾两条文档 debt：在 `lib/codex-backend.js` 顶部 file-level 注释里加一段说明 `acceptForSession` 仅会话内有效 + 网络审批共享 commandExecution 通道 UI 不区分。这一项不依赖 5a，可以在 5b 实施时顺手做。
+
+---
+
+#### Iteration 5b — Thread Fork（HEAD-only）
+
+**目标**：Codex 项目用户能从当前对话状态分叉出新 thread，原 thread 保留在 sidebar 可切回。
+
+##### Protocol probe 结果（`scripts/codex-fork-protocol-probe.js` — 17/17 ✅）
+
+实施前先跑 probe，把所有协议假设打到实测里，这是 Iter 5a 教训的直接应用。
+
+| 验证项 | 结果 |
+|---|---|
+| `thread/fork { threadId }` 返回 `{ thread: { id, forkedFromId, turns, ... } }`（camelCase） | ✅ |
+| Fork 服务端自动复制历史（`turns.length === 1` 来自源） | ✅ |
+| Forked thread 能接新 `turn/start` 且模型记得历史 | ✅ |
+| 源 thread fork 后仍可继续 `turn/start`（同进程多 thread） | ✅ |
+| `thread/resume { threadId }` 切回旧 thread → same-id round-trip + turns 完整 | ✅ |
+| `excludeTurns: true` → 空 fork（`turns.length === 0`） | ✅ |
+| `thread/fork { threadId: "bogus" }` → `-32600 invalid thread id`（不是 -32601 → 方法存在） | ✅ |
+| 未知 anchor 字段（`atTurnId` / `atItemId`）→ **codex serde 静默忽略，不报错也不生效** | ⚠️ 见下 |
+
+##### 关键实测发现：**没有 fork-point 锚点**
+
+`thread/fork` 强制 fork 整段历史。要在第 N 条消息处分叉，必须组合 `thread/rollback`（截断源）或用 `thread/resume { threadId, history: [...] }` 自合成 —— **均超出 5b 范围**。
+
+**5b 决定：HEAD-only fork**。对应 UX = "从当前状态分叉"，按钮挂在 conversation 末尾或顶栏，**不**挂在每条消息上。
+
+理由（Linus "解决真问题"原则）：
+1. 真用户需求 = "我想分支去试不同路线，不丢现状"。HEAD-only 100% 覆盖。
+2. per-message anchor = 20% 用例 + 二次 probe + 独立 UX 设计 = 单独迭代值得（5c 候选）。
+3. Codex 项目当前 `.msg-user-rewind-btn` 已 hide（Iter 3），所以 HEAD-only fork 是严格新增，零回归。
+
+##### 设计决策（实测后敲定）
+
+| 问题 | 决策 |
+|---|---|
+| 切回旧 thread 用什么协议？ | **`thread/resume { threadId }`**（probe 验证 round-trip 同 id）。不再需要"switchThread"概念。 |
+| Fork 后是新 session 文件还是同 session 加新 thread？ | **新 session 文件**。复用 `sm.createSession()` 路径，新 cliSessionId = Codex 返回的新 threadId。 |
+| Sidebar 怎么表达"一个项目 N 个 thread"？ | **复用现有 multi-session UI**。新 fork 出的 session 自动出现在 sidebar，用户点击触发 `thread/resume`。无需新组件。 |
+| URL 路由要不要 `/p/{slug}/t/{threadId}/`？ | **不要**。沿用现有 `switch_session` WS 消息，URL 仍是 `/p/{slug}/`。 |
+| Fork 入口挂哪？ | **顶栏/工具栏 "Fork" 按钮**（仅 `body.backend-codex` 显示）。不挂消息气泡。 |
+| Fork 失败走哪个错误态？ | **toast / inline error**，不创建半成品 session。复用 Iter 4 codex_unavailable 不合适（fork 失败 ≠ 进程不可用）。 |
+| Fork 时 codex 子进程要不要新开？ | **不开**。同进程内 `thread/fork` + 后续 `thread/resume` 切换 active threadId。Probe 已确认单进程多 thread 工作。 |
+| 复制 Clay session JSONL 历史吗？ | **复制**。Codex 服务端持有完整 turn 历史，Clay session 文件仅用于 UI replay。fork 时把源 session JSONL 完整 copy 到新 session 文件，新文件首行加 `session_id` = 新 threadId。这样 sidebar 切换时 Clay 端显示完整历史，Codex 端用 `thread/resume` 同步 thread 上下文。 |
+
+##### 后端
+
+**核心改动：codex-backend 解耦"backend 实例 ↔ 单 thread"**。
+
+- 实例字段 `threadId` / `currentSession` 仍是"当前激活"。
+- 新增 `forkActiveThread(session)` 方法：
+  - 调 `client.request("thread/fork", { threadId: <current> })`
+  - 收到新 threadId → 用 `sm.createSession()` 创建新 Clay session
+  - 复制源 session.history 到新 session.history（在 createSession 后 push 历史 + saveSessionFile）
+  - 设置新 session.cliSessionId = 新 threadId
+  - 切换 backend 内部 `threadId` / `currentSession` 到新值
+  - emit `session_switched` + `forkedFromId` 元数据让前端可显示血缘
+- `ensureThread(session)` 改造：
+  - 当前逻辑：首次为 session 调 `thread/start`
+  - 新逻辑：如果 `session.cliSessionId` 已经是有效 threadId（来自 fork 或 resume），调 `thread/resume { threadId: session.cliSessionId }` 而不是 `thread/start`
+  - resume 失败（threadId 不存在 / 进程换了）→ fallback 到 `thread/start` 新建（旧历史无法续）+ 在 session 注入 info 消息提示
+- WS 路由：
+  - 新增 `fork_thread`（无 params，fork 当前 active session）→ 后端调 `forkActiveThread`
+  - 复用 `switch_session { id }` —— 不变；切到不同 cliSessionId 时 backend 自动 resume
+
+##### UI
+
+- 顶栏（`#topbar` 或附近）新增 Fork 按钮：仅 `body.backend-codex` 显示。Icon = git-branch 或 fork 形状。
+- 点击 → 自定义 confirm modal（CLAUDE.md 禁用 native confirm）："Fork conversation? The current thread will remain accessible from the session list."
+- 确认 → 发 `fork_thread` WS。
+- 收到 `session_switched` → sidebar 高亮跳转，无感切换。
+- Fork 失败：在 message 区域插入红字 `.codex-fork-error` 一行，含 reason + 关闭按钮。
+
+##### 测试
+
+- 协议 probe：`scripts/codex-fork-protocol-probe.js` ✅ 已落地。**进 CI**（每次发布前跑一次，cost 约 4 个 turn API 调用，可接受）。
+- 单元 `test/codex-fork.test.js`（新文件，~6 项）：
+  1. `forkActiveThread` 发出 `thread/fork { threadId }` RPC（fake client 验证）
+  2. fork 成功后 `currentSession` / `threadId` 切到新值
+  3. fork 成功后新 session.history 复制了源历史
+  4. fork RPC 失败 → 不切换、不创建 session、抛出错误
+  5. `ensureThread` 当 session.cliSessionId 已有时调 `thread/resume`（不是 `thread/start`）
+  6. `ensureThread` 的 resume 失败时 fallback 到 thread/start
+- WS e2e `scripts/codex-e2e.js` 增 step 8：发消息 → fork_thread → 验证 session_switched + 两个 session 在 broadcast list → switch_session 回旧 → 旧 session.cliSessionId resume 成功 → 发新消息 → 双 thread 并存。
+- UI e2e `scripts/codex-fork-ui-e2e.js`（新文件，~5 断言）：Fork 按钮仅 Codex 项目可见 / Claude 项目无该按钮 / 点击弹 confirm modal / 确认后 WS 发 `fork_thread` 帧 / 错误态渲染 `.codex-fork-error`。
+- **Live verify**（不进 CI）：扩展 `scripts/codex-approval-live-verify.js` 或新建 `scripts/codex-fork-live-verify.js` —— 真跑一次：发"记住我说 ALPHA" → fork → 在新 thread 问"我刚说什么" → 应回 ALPHA → 切回原 thread → 问相同问题 → 应回 ALPHA。证明历史在两 thread 都通。
+
+##### 完成标准
+
+1. Codex 项目顶栏点 Fork → sidebar 出现新 session → 自动切到新 session → 继续发消息可用
+2. 点 sidebar 切回旧 session → Clay 历史完整显示 → 发新消息 → Codex 用 `thread/resume` 续上原 threadId
+3. Fork RPC 失败时不留半成品 session 文件、UI 显示 reason
+4. Claude 项目零回归（rewind 仍工作、Fork 按钮不存在）
+5. 同项目 fork 5 次后 codex 子进程仍单实例（`ps` 验证）
+
+##### 不做（明确推迟到 5c 或后）
+
+- **per-message anchor fork**：需要 `thread/rollback` probe + UX 重设计。5c 候选。
+- 跨 thread 比较 / merge
+- Fork tree 可视化（仅平铺 sidebar list，附 forkedFromId 元数据）
+- Fork 时改 model / sandbox（先继承当前配置；codex-fork RPC 接受 model override 但 5b 不暴露）
+- 旧 thread 删除（与 Claude session 删除走同一路径，不专门处理）
+
+##### 5a 教训应用
+
+- ✅ 协议 probe 先行，所有 schema 假设跑过实测
+- ✅ 单元测试 fake client + e2e 真 daemon + live verify 真 codex API，三层都过才算完
+- ✅ 不向 codex 发未约定字段（`atTurnId` 等已知会被静默忽略，明确不发）
+- ✅ Plan 写得了 ≠ 协议支持 —— 已 probe → 已知支持，可放心实施
+
+---
+
+### Iteration 6（Codex 原生特性 + Phase 2）
+
+**目标**：让 Codex 项目有自己的"质感"。从 Iter 5 推迟过来的 + 原 Iter 6 的远期项。
+
+#### 从 Iter 5 推迟过来的
+
+- **Skills**：拉 `skills/list`，在侧边栏给 Codex 项目独立 skills 面板。**前置 spike**：`skills/list` 真实返回什么？空 / demo only / 真有用户 skill？根据 spike 结果决定是做完整 UI 还是砍掉。
+- **Connectors / Apps / MCP server 管理**：独立子系统，需要 Iter 4 级别的健壮性工作量（配置持久化、生命周期、错误态）。**前置评估**：调查有多少 Codex 用户在 Clay 里管 MCP，再决定优先级。
+- **Turn diff / plan**：先在 `codex-backend.js` 把 `turn/diff/updated` / `turn/plan/updated` 事件 silently 翻译进现有消息流（不渲染独立 UI）。后续若有用户反馈再做专属 UI。
+
+#### 原 Iter 6（远期）
 
 - **Clay 内 OAuth**：对接 `account/login/start`，让用户不离开 Clay 就能登录 Codex。仅当用户反馈强烈时做。
 - **Compare Mode**：横向并排 Claude 与 Codex 项目，同一目录同一提示词对比输出。
-- **共享 codex 进程**：如果性能/资源成为问题，可重新评估是否合并多项目到单个 codex 进程多 thread。当前默认每项目独立进程。
+- **共享 codex 进程**：如果性能/资源成为问题，可重新评估是否合并多项目到单个 codex 进程多 thread。当前默认每项目独立进程。Iter 5b 已经做了"单进程多 thread"，可作为这个方向的基础。
 
 ---
 
@@ -334,14 +543,31 @@ project.js  ──► AgentBackend (interface)
 
 ## 当前下一步
 
-**Iter 4 部分完成。下一轮可选两条路：**
+**Iter 5b 完成。Iter 6 候选项待评估。**
 
-1. **完成 Iter 4 剩余**（401 失效 + 版本兼容 + 持久化项）— 把"完成标准"三项全部点亮。
-2. **进入 Iter 5**（fork / skills / connectors）— 让 Codex 项目有自己的"质感"。
+5b 实施成果（应用了 5a 的所有教训）：
+- protocol probe 先行（17/17）→ 提前发现"无 fork-point 锚点"，避免设计错误
+- 单元测试 7 项（fake client 验证 RPC 翻译契约）
+- WS e2e 6 项（真 daemon round-trip）
+- UI e2e 13 项（Playwright DOM + WS 帧验证）
+- **Live verify 真 Codex API 通过**：source 设 ALPHA → fork 记得 ALPHA → 切回 source 仍记得 ALPHA
 
-推荐先做选项 1 中的"401 失效"一项（最常见线上事故）+ 持久化 sandbox/approval（用户痛感最强），再推进 Iter 5。版本兼容检查频率低可以更晚。
+总测试数：60 单元 + 32 WS e2e + 13 fork UI e2e + 22 hide UI + 25 unavailable UI + 8 approval UI + 25 generic UI + 8 auth-card = **193 全绿**。
 
-**Iter 2/3 实测后发现待跟进项**（部分聚到 Iter 4 后续）：
+---
+
+**Iter 5a 历史回顾（保留作为踩坑记录）**：实施完后 live verify 证伪并撤回。Codex v2 协议不支持 modifyCommand-on-accept。所有改动 revert，基线恢复。Postmortem 见 Iter 5a KILLED 段。
+
+5a 撤回原因：Codex v2 `CommandExecutionRequestApprovalResponse` 仅含 `decision` 字段，没有任何位置可以传修改后的命令。详细 postmortem 见 Iter 5a KILLED 段。所有 5a 代码改动已 revert，53 单元 + 8 approval e2e 基线恢复。
+
+**5a 教训应用到 5b**（已完成）：
+- ✅ thread/fork 实施前强制先跑 `scripts/codex-fork-protocol-probe.js` —— 17/17 全绿
+- ✅ 实测发现"无 fork-point 锚点" → per-message UX 推 5c，5b 收敛为 HEAD-only
+- ✅ 实测发现 `thread/resume { threadId }` round-trip 同 id —— 替代 plan 里的 hand-wavy "switchThread"
+- ✅ 三层测试栈全建立：单元 + e2e + live verify
+- ✅ live verify 跑通真 Codex API：source/fork/resumed-source 都记得 ALPHA
+
+**Iter 2/3 实测后发现待跟进项**（部分聚到 Iter 4 已完成；剩余文档化）：
 - `acceptForSession` 当前只缓存到 Clay 侧 `session.allowedTools[allowKey]`，重启 daemon 后丢失。Codex 进程内的会话 cache 也是同会话作用域，行为一致 — 但要在 Iter 4 错误处理里明确说明。
 - 网络审批 (`networkApprovalContext`) 走的是同一 `commandExecution/requestApproval` 通道；UI 当前只展示命令文本，不区分 "命令" vs "命令+网络"。Iter 4 加 `networkAccess` 渲染时统一处理。
 - Codex 设置（sandbox / approvalPolicy / model / effort）当前只存实例变量，daemon 重启丢失。如果用户期望持久化，Iter 4 加 daemon.json 字段；否则文档说明"重启即重置为 workspace-write + on-request"。

@@ -46,6 +46,46 @@ body.backend-codex #config-beta-section { display: none !important; }
 body.backend-codex #config-codex-sandbox-section,
 body.backend-codex #config-codex-approval-section { display: block; }
 
+/* Iter 5b: thread fork.
+ *
+ * The header Fork button uses native HTML `hidden` for default-off; only
+ * info.capabilities.threadFork === true reveals it. We add nothing here
+ * for the button itself — it inherits the existing .title-bar-content
+ * button style from menus.css. The error inline message is purely
+ * additive and styled as a soft warning chip.
+ */
+.codex-fork-error {
+  margin: 12px 0;
+  padding: 10px 32px 10px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-elevated, var(--bg));
+  color: var(--fg);
+  font-size: 13px;
+  position: relative;
+  max-width: 780px;
+}
+.codex-fork-error-dismiss {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted, var(--fg));
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.codex-fork-error-dismiss:hover {
+  background: var(--bg);
+  color: var(--fg);
+}
+
 /* Iter 4: codex_unavailable card.
  *
  * One renderer, kind-driven theming. The base layout matches the existing

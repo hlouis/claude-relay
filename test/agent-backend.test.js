@@ -90,9 +90,11 @@ test("createAgentBackend returns a codex backend exposing the AgentBackend surfa
 test("getBackendCapabilities returns Claude's full historical setting set", function () {
   var caps = getBackendCapabilities("claude");
   assert.deepStrictEqual(
-    caps,
-    { settings: ["model", "permissionMode", "effort", "betas", "thinking"] }
+    caps.settings,
+    ["model", "permissionMode", "effort", "betas", "thinking"]
   );
+  // Iter 5b: Claude has rewind, not fork. Capability flag must say so.
+  assert.strictEqual(caps.threadFork, false);
 });
 
 test("getBackendCapabilities defaults to Claude when backend arg is omitted", function () {
@@ -100,17 +102,21 @@ test("getBackendCapabilities defaults to Claude when backend arg is omitted", fu
   // Defaulting to Claude preserves pre-capability behavior for any caller
   // that hasn't been threaded the backend name yet.
   assert.deepStrictEqual(
-    caps,
-    { settings: ["model", "permissionMode", "effort", "betas", "thinking"] }
+    caps.settings,
+    ["model", "permissionMode", "effort", "betas", "thinking"]
   );
+  assert.strictEqual(caps.threadFork, false);
 });
 
 test("getBackendCapabilities returns Codex's distinct setting set", function () {
   var caps = getBackendCapabilities("codex");
   assert.deepStrictEqual(
-    caps,
-    { settings: ["model", "effort", "sandbox", "approvalPolicy", "apiKeyOverride"] }
+    caps.settings,
+    ["model", "effort", "sandbox", "approvalPolicy", "apiKeyOverride"]
   );
+  // Iter 5b: Codex advertises HEAD-only thread fork. Frontend gates the
+  // topbar Fork button on this flag.
+  assert.strictEqual(caps.threadFork, true);
   // Sanity: the Claude-only keys must not leak into Codex's set, otherwise
   // the frontend will render dead controls.
   assert.strictEqual(caps.settings.indexOf("permissionMode"), -1);

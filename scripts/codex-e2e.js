@@ -107,6 +107,15 @@ function wsRecv(ws, predicate, timeoutMs, label) {
     ws.once("open", resolve);
     ws.once("error", reject);
   });
+  // Iter 5b: attach the session_list capture as early as possible —
+  // broadcasts fire on session creation / switch / etc. so we'd miss the
+  // pre-fork state if we wait until step 6.8. We don't read the array
+  // until needed; just make sure it's populated.
+  var sessionLists = [];
+  ws.on("message", function (raw) {
+    var m; try { m = JSON.parse(raw.toString()); } catch (e) { return; }
+    if (m.type === "session_list" && Array.isArray(m.sessions)) sessionLists.push(m);
+  });
 
   console.log("[e2e] step 4: wait for info + codex_config first echo (collected together)");
   // We wait for codex_config (which the connect handler sends right after
@@ -236,6 +245,106 @@ function wsRecv(ws, predicate, timeoutMs, label) {
     "daemon.json sandbox === 'read-only' (got " + (savedEntry && savedEntry.codexConfig && savedEntry.codexConfig.sandbox) + ")");
   check(savedEntry && savedEntry.codexConfig && savedEntry.codexConfig.approvalPolicy === "never",
     "daemon.json approvalPolicy === 'never' (got " + (savedEntry && savedEntry.codexConfig && savedEntry.codexConfig.approvalPolicy) + ")");
+
+  // Iter 5b: HEAD-only thread fork over WS. We exercise the fork_thread
+  // path now (before ws.close()) because we need an ACTIVE session with a
+  // real cliSessionId — i.e. one that already completed a turn. The
+  // session from step 5 satisfies that.
+  //
+  // We deliberately do NOT issue a follow-up turn on the fork — that
+  // would add another paid LLM call to CI. The unit tests cover the
+  // forkActiveThread translation contract; live verify exercises a real
+  // turn round-trip.
+  console.log("[e2e] step 6.8: fork active thread (HEAD-only, no follow-up turn)");
+  // sessionLists is populated by the listener attached at step 3.
+  await new Promise(function (r) { setTimeout(r, 200); });
+  var preForkList = sessionLists[sessionLists.length - 1] || null;
+  var preForkCount = preForkList ? preForkList.sessions.length : 0;
+  // Field is named `id` in mapSessionForClient (renamed from session.localId).
+  // Use the active flag to pick THE source session — there may be stale
+  // sessions from previous runs in the broadcast.
+  var sourceLocalId = null;
+  var sourceCliSessionId = null;
+  if (preForkList) {
+    for (var psi = 0; psi < preForkList.sessions.length; psi++) {
+      if (preForkList.sessions[psi].active) {
+        sourceLocalId = preForkList.sessions[psi].id;
+        sourceCliSessionId = preForkList.sessions[psi].cliSessionId;
+        break;
+      }
+    }
+  }
+  console.log("  pre-fork session count: " + preForkCount + " (sourceLocalId=" + sourceLocalId + ")");
+
+  // Fire fork_thread; wait for either codex_fork_error or a session_switched
+  // pointing at a session DIFFERENT from the source. createSession's
+  // bootstrap fires a session_switched with cliSessionId=null first; we
+  // filter for the post-mutation event by requiring a non-empty
+  // cliSessionId AND a localId different from sourceLocalId.
+  var forkOutcome = await new Promise(function (resolve) {
+    var to = setTimeout(function () { resolve({ kind: "timeout" }); }, 30000);
+    function onMsg(raw) {
+      var m; try { m = JSON.parse(raw.toString()); } catch (e) { return; }
+      if (m.type === "codex_fork_error") {
+        clearTimeout(to);
+        ws.removeListener("message", onMsg);
+        resolve({ kind: "error", msg: m });
+        return;
+      }
+      // Only the FINAL session_switched (from project.js's explicit
+      // switchSession after the new session has its cliSessionId) carries
+      // both a fresh localId AND a non-empty cliSessionId.
+      if (m.type === "session_switched"
+          && m.id !== sourceLocalId
+          && typeof m.cliSessionId === "string"
+          && m.cliSessionId.length > 0) {
+        clearTimeout(to);
+        ws.removeListener("message", onMsg);
+        resolve({ kind: "switched", msg: m });
+      }
+    }
+    ws.on("message", onMsg);
+    ws.send(JSON.stringify({ type: "fork_thread" }));
+  });
+  check(forkOutcome.kind === "switched",
+    "fork_thread → session_switched (got kind=" + forkOutcome.kind +
+    (forkOutcome.kind === "error" ? ", reason=" + (forkOutcome.msg && forkOutcome.msg.reason) : "") + ")");
+  if (forkOutcome.kind === "switched") {
+    check(typeof forkOutcome.msg.cliSessionId === "string" && forkOutcome.msg.cliSessionId.length > 0,
+      "fork session_switched carries a cliSessionId");
+    check(forkOutcome.msg.cliSessionId !== sourceCliSessionId,
+      "forked thread id differs from source (" + forkOutcome.msg.cliSessionId +
+      " vs source " + sourceCliSessionId + ")");
+
+    // Wait briefly for the post-fork list broadcast.
+    await new Promise(function (r) { setTimeout(r, 400); });
+    var postForkList = sessionLists[sessionLists.length - 1];
+    check(postForkList && postForkList.sessions.length === preForkCount + 1,
+      "session list grew by exactly one after fork (preFork=" + preForkCount +
+      ", postFork=" + (postForkList ? postForkList.sessions.length : "<none>") + ")");
+
+    // Switch back to the source session and confirm it's still alive.
+    if (sourceLocalId != null) {
+      var switchOutcome = await new Promise(function (resolve) {
+        var to = setTimeout(function () { resolve(null); }, 5000);
+        function onMsg(raw) {
+          var m; try { m = JSON.parse(raw.toString()); } catch (e) { return; }
+          if (m.type === "session_switched" && m.id === sourceLocalId) {
+            clearTimeout(to);
+            ws.removeListener("message", onMsg);
+            resolve(m);
+          }
+        }
+        ws.on("message", onMsg);
+        ws.send(JSON.stringify({ type: "switch_session", id: sourceLocalId }));
+      });
+      check(switchOutcome != null,
+        "switch_session back to source returns session_switched (id=" + sourceLocalId + ")");
+      check(switchOutcome && typeof switchOutcome.cliSessionId === "string"
+            && switchOutcome.cliSessionId.length > 0,
+        "switched-back session_switched carries source cliSessionId");
+    }
+  }
 
   ws.close();
   await new Promise(function (r) { setTimeout(r, 200); });
