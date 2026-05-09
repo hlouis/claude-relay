@@ -46,6 +46,42 @@
   color: var(--text-secondary);
 }
 
+.mention-tabs {
+  position: sticky;
+  top: 34px;
+  z-index: 1;
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.mention-tab {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mention-tab:hover {
+  color: var(--text);
+  background: rgba(var(--overlay-rgb), 0.05);
+}
+
+.mention-tab.active {
+  color: var(--accent);
+  background: var(--accent-12, rgba(255,184,108,0.12));
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
 .mention-item {
   display: flex;
   align-items: center;
@@ -85,6 +121,23 @@
   background: #fff;
   object-fit: cover;
   object-position: center;
+}
+
+.mention-file-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.mention-file-icon .lucide {
+  width: 18px;
+  height: 18px;
+}
+
+.mention-file-item .mention-item-name {
+  font-family: "Roboto Mono", monospace;
+  font-weight: 500;
 }
 
 .mention-item-info {

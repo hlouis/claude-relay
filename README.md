@@ -10,8 +10,8 @@ Self-hosted, one toggle between vendors.
 </h4>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/clay-server"><img src="https://img.shields.io/npm/v/clay-server" alt="npm version" /></a>
-  <a href="https://www.npmjs.com/package/clay-server"><img src="https://img.shields.io/npm/dw/clay-server" alt="npm downloads" /></a>
+  <a href="https://www.npmjs.com/package/@hlouis/clay"><img src="https://img.shields.io/npm/v/@hlouis/clay" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/@hlouis/clay"><img src="https://img.shields.io/npm/dw/@hlouis/clay" alt="npm downloads" /></a>
   <a href="https://github.com/chadbyte/clay"><img src="https://img.shields.io/github/stars/chadbyte/clay" alt="GitHub stars" /></a>
   <a href="https://github.com/chadbyte/clay/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
 </p>
@@ -23,7 +23,7 @@ Afraid of locking your personal or team knowledge into one vendor? With Clay, yo
 *A team-shared, self-hosted GUI for Claude Code and Codex CLIs.*
 
 ```bash
-npx clay-server
+npx @hlouis/clay
 # Scan the QR code to connect from any device
 ```
 
@@ -97,7 +97,7 @@ Your code stays on your machine. Sessions are JSONL, knowledge is Markdown, sett
 **Requirements:** Node.js 20+. Authenticated Claude Code CLI, Codex CLI, or both.
 
 ```bash
-npx clay-server
+npx @hlouis/clay
 ```
 
 On first run, Clay asks for a port and whether you're solo or with a team. Open the URL or scan the QR code from your phone.
@@ -105,26 +105,26 @@ On first run, Clay asks for a port and whether you're solo or with a team. Open 
 For remote access, use a VPN like Tailscale.
 
 <p align="center">
-  <img src="media/start.gif" alt="Starting Clay daemon from the CLI with npx clay-server" width="600">
+  <img src="media/start.gif" alt="Starting Clay daemon from the CLI with npx @hlouis/clay" width="600">
 </p>
 
 ## CLI Options
 
 ```bash
-npx clay-server              # Default (port 2633)
-npx clay-server -p 8080      # Specify port
-npx clay-server --yes        # Skip interactive prompts (use defaults)
-npx clay-server -y --pin 123456
+npx @hlouis/clay              # Default (port 2633)
+npx @hlouis/clay -p 8080      # Specify port
+npx @hlouis/clay --yes        # Skip interactive prompts (use defaults)
+npx @hlouis/clay -y --pin 123456
                               # Non-interactive + PIN (for scripts/CI)
-npx clay-server --add .      # Add current directory to running daemon
-npx clay-server --remove .   # Remove project
-npx clay-server --list       # List registered projects
-npx clay-server --shutdown   # Stop running daemon
-npx clay-server --dangerously-skip-permissions
+npx @hlouis/clay --add .      # Add current directory to running daemon
+npx @hlouis/clay --remove .   # Remove project
+npx @hlouis/clay --list       # List registered projects
+npx @hlouis/clay --shutdown   # Stop running daemon
+npx @hlouis/clay --dangerously-skip-permissions
                               # Bypass all permission prompts (requires PIN at setup)
 ```
 
-Run `npx clay-server --help` for all options.
+Run `npx @hlouis/clay --help` for all options.
 
 ## FAQ
 

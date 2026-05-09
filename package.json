@@ -1,9 +1,9 @@
 {
-  "name": "clay-server",
+  "name": "@hlouis/clay",
   "version": "2.38.0-beta.6",
   "description": "Self-hosted team workspace for Claude Code and Codex. Multi-user, browser-based, with persistent AI mates.",
   "bin": {
-    "clay-server": "./bin/cli.js",
+    "clay": "./bin/cli.js",
     "claude-relay": "./bin/claude-relay.js",
     "clay-dev": "./bin/cli.js"
   },
@@ -41,13 +41,16 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/chadbyte/clay.git"
+    "url": "git+https://github.com/hlouis/claude-relay.git"
   },
   "bugs": {
-    "url": "https://github.com/chadbyte/clay/issues"
+    "url": "https://github.com/hlouis/claude-relay/issues"
   },
-  "homepage": "https://github.com/chadbyte/clay#readme",
-  "author": "Chad",
+  "homepage": "https://github.com/hlouis/claude-relay#readme",
+  "author": "Louis Huang <hlouis@gmail.com>",
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.132",
     "@lydell/node-pty": "^1.2.0-beta.3",
