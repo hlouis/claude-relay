@@ -5,7 +5,7 @@ var fs = require("fs");
 var path = require("path");
 var os = require("os");
 
-var { generateAuthToken, verifyPin } = require("../lib/server");
+var { generateAuthToken, verifyPin } = require("../lib/server-auth");
 var { safePath, validateEnvString } = require("../lib/project");
 var { chmodSafe } = require("../lib/config");
 

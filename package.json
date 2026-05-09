@@ -9,6 +9,9 @@
   },
   "scripts": {
     "dev": "node bin/cli.js --dev",
+    "test": "npm run test:daemon && npm run test:client",
+    "test:daemon": "node --test test/*.test.js",
+    "test:client": "node --test test/*.test.mjs",
     "prepack": "npm pkg delete bin.clay-dev",
     "postpack": "npm pkg set bin.clay-dev=./bin/cli.js",
     "semantic-release": "semantic-release"
