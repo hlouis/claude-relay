@@ -7,7 +7,48 @@ var os = require("os");
 
 var { generateAuthToken, verifyPin } = require("../lib/server-auth");
 var { safePath, validateEnvString } = require("../lib/project");
+var { attachHTTP } = require("../lib/project-http");
 var { chmodSafe } = require("../lib/config");
+
+function makeProjectHttp(cwd) {
+  return attachHTTP({
+    cwd: cwd,
+    slug: "test",
+    project: {},
+    sm: { sessions: [] },
+    send: function () {},
+    imagesDir: "",
+    osUsers: null,
+    pushModule: null,
+    safePath: safePath,
+    safeAbsPath: function () { return null; },
+    getOsUserInfoForReq: function () { return null; },
+    sendExtensionCommandAny: function () { return Promise.resolve({}); },
+    _extToken: "test",
+    _browserTabList: {},
+  });
+}
+
+function makeResponse() {
+  return {
+    status: null,
+    headers: null,
+    body: null,
+    writeHead: function (status, headers) {
+      this.status = status;
+      this.headers = headers || {};
+    },
+    end: function (body) {
+      this.body = body;
+    },
+  };
+}
+
+function requestProjectHttp(http, urlPath) {
+  var res = makeResponse();
+  var handled = http.handleHTTP({ method: "GET" }, res, urlPath);
+  return { handled: handled, res: res };
+}
 
 // ============================================================
 // 1. PIN scrypt hashing / verification
@@ -94,6 +135,72 @@ test("safePath returns base dir for empty path", function () {
   var result = safePath(tmpDir, "");
   assert.strictEqual(result, tmpDir, "Empty path should resolve to base");
   fs.rmSync(tmpDir, { recursive: true });
+});
+
+test("file preview serves allowed static files with query strings", function () {
+  var tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "preview-")));
+  try {
+    fs.mkdirSync(path.join(tmpDir, "site"));
+    fs.writeFileSync(path.join(tmpDir, "site", "index.html"), "<!doctype html><link rel=\"stylesheet\" href=\"style.css\">");
+    fs.writeFileSync(path.join(tmpDir, "site", "style.css"), "body { color: red; }");
+    var http = makeProjectHttp(tmpDir);
+
+    var htmlResult = requestProjectHttp(http, "/api/file-preview/site/index.html");
+    assert.strictEqual(htmlResult.handled, true);
+    assert.strictEqual(htmlResult.res.status, 200);
+    assert.strictEqual(htmlResult.res.headers["Content-Type"], "text/html; charset=utf-8");
+    var csp = htmlResult.res.headers["Content-Security-Policy"] || "";
+    assert.ok(csp.indexOf("sandbox") === 0, "HTML preview must start with CSP sandbox directive");
+    assert.ok(csp.indexOf("default-src 'none'") >= 0, "CSP must default-deny");
+
+    var cssResult = requestProjectHttp(http, "/api/file-preview/site/style.css?v=1");
+    assert.strictEqual(cssResult.handled, true);
+    assert.strictEqual(cssResult.res.status, 200);
+    assert.strictEqual(cssResult.res.headers["Content-Type"], "text/css; charset=utf-8");
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("file preview rejects scripts, sensitive files, and traversal", function () {
+  var tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "preview-")));
+  try {
+    fs.writeFileSync(path.join(tmpDir, "app.js"), "console.log('no');");
+    fs.writeFileSync(path.join(tmpDir, ".env"), "SECRET=value");
+    var http = makeProjectHttp(tmpDir);
+
+    var scriptResult = requestProjectHttp(http, "/api/file-preview/app.js");
+    assert.strictEqual(scriptResult.handled, true);
+    assert.strictEqual(scriptResult.res.status, 403);
+
+    var envResult = requestProjectHttp(http, "/api/file-preview/.env");
+    assert.strictEqual(envResult.handled, true);
+    assert.strictEqual(envResult.res.status, 403);
+
+    var traversalResult = requestProjectHttp(http, "/api/file-preview/../../etc/passwd");
+    assert.strictEqual(traversalResult.handled, true);
+    assert.strictEqual(traversalResult.res.status, 403);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("file preview rejects oversized files with 413", function () {
+  var tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "preview-")));
+  try {
+    var bigPath = path.join(tmpDir, "big.mp4");
+    var fd = fs.openSync(bigPath, "w");
+    // Sparse file: 21 MB, exceeds the 20 MB preview cap.
+    fs.ftruncateSync(fd, 21 * 1024 * 1024);
+    fs.closeSync(fd);
+    var http = makeProjectHttp(tmpDir);
+
+    var result = requestProjectHttp(http, "/api/file-preview/big.mp4");
+    assert.strictEqual(result.handled, true);
+    assert.strictEqual(result.res.status, 413);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 });
 
 // ============================================================
