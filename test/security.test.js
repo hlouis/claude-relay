@@ -150,8 +150,11 @@ test("file preview serves allowed static files with query strings", function () 
     assert.strictEqual(htmlResult.res.status, 200);
     assert.strictEqual(htmlResult.res.headers["Content-Type"], "text/html; charset=utf-8");
     var csp = htmlResult.res.headers["Content-Security-Policy"] || "";
-    assert.ok(csp.indexOf("sandbox") === 0, "HTML preview must start with CSP sandbox directive");
+    assert.ok(csp.indexOf("sandbox allow-scripts") === 0, "HTML preview must declare sandbox allow-scripts (opaque origin keeps it safe)");
+    assert.ok(csp.indexOf("allow-same-origin") < 0, "CSP must NOT grant allow-same-origin");
+    assert.ok(csp.indexOf("allow-top-navigation") < 0, "CSP must NOT grant allow-top-navigation");
     assert.ok(csp.indexOf("default-src 'none'") >= 0, "CSP must default-deny");
+    assert.ok(csp.indexOf("frame-ancestors 'self'") >= 0, "CSP must restrict framing to same origin");
 
     var cssResult = requestProjectHttp(http, "/api/file-preview/site/style.css?v=1");
     assert.strictEqual(cssResult.handled, true);
