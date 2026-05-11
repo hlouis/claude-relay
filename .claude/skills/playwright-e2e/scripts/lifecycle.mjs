@@ -39,9 +39,11 @@ export function wipeDaemon(opts) {
   }
 }
 
-// Locate an existing Playwright install on the user's machine and return the
-// absolute import path. Returns null if none found; caller should prompt to
-// `npx playwright install chromium` or pick a specific path.
+// Locate an existing Playwright install on the user's machine whose required
+// Chromium build is actually downloaded. Returns the absolute import path or
+// null. Without this check, `findPlaywright` can pick a version whose chromium
+// is missing on disk, which fails at `browser.launch` time with an opaque
+// "Executable doesn't exist" error.
 export function findPlaywright() {
   var candidates = [];
   var roots = [
@@ -51,14 +53,46 @@ export function findPlaywright() {
     path.join(os.homedir(), "projects"),
   ];
   for (var i = 0; i < roots.length; i++) {
-    var root = roots[i];
-    if (!fs.existsSync(root)) continue;
-    walk(root, 5, candidates);
+    if (fs.existsSync(roots[i])) walk(roots[i], 5, candidates);
   }
   if (candidates.length === 0) return null;
-  // Prefer non-alpha versions
-  candidates.sort(function (a, b) { return a.indexOf("alpha") - b.indexOf("alpha"); });
-  return path.join(candidates[0], "index.mjs");
+
+  // Read each install's package.json to grab the bundled chromium revision,
+  // then check that the corresponding browser directory exists in the
+  // ms-playwright cache. Pick the highest-rev install that's actually usable.
+  var cacheDir = process.env.PLAYWRIGHT_BROWSERS_PATH
+    || path.join(os.homedir(), process.platform === "darwin" ? "Library/Caches/ms-playwright" : ".cache/ms-playwright");
+  var usable = [];
+  for (var j = 0; j < candidates.length; j++) {
+    var rev = readChromiumRev(candidates[j]);
+    if (!rev) continue;
+    var browserDirs = ["chromium-" + rev, "chromium_headless_shell-" + rev];
+    var ok = browserDirs.some(function (d) { return fs.existsSync(path.join(cacheDir, d)); });
+    if (ok) usable.push({ root: candidates[j], rev: parseInt(rev, 10) || 0 });
+  }
+  if (usable.length === 0) return null;
+  usable.sort(function (a, b) { return b.rev - a.rev; }); // prefer newest
+  return path.join(usable[0].root, "index.mjs");
+}
+
+function readChromiumRev(pwRoot) {
+  // playwright-core/browsers.json lists each browser's revision.
+  var candidates = [
+    path.join(pwRoot, "..", "playwright-core", "browsers.json"),
+    path.join(pwRoot, "browsers.json"),
+  ];
+  for (var i = 0; i < candidates.length; i++) {
+    try {
+      var data = JSON.parse(fs.readFileSync(candidates[i], "utf8"));
+      var list = data.browsers || [];
+      for (var j = 0; j < list.length; j++) {
+        if (list[j].name === "chromium" || list[j].name === "chromium-headless-shell") {
+          return String(list[j].revision);
+        }
+      }
+    } catch (e) {}
+  }
+  return null;
 }
 
 function walk(dir, depth, out) {
