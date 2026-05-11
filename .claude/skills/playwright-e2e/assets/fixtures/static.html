@@ -1,0 +1,18 @@
+<!-- Static HTML fixture: pure markup + CSS, no JS. Tests that the iframe
+     renders and CSP sandbox does not block the document. -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Static HTML</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; padding: 2rem; max-width: 720px; margin: 0 auto; }
+    h1 { color: steelblue; border-bottom: 2px solid steelblue; padding-bottom: 0.3em; }
+  </style>
+</head>
+<body>
+  <h1>Hello Static</h1>
+  <p>Pure HTML + inline CSS. Should always render.</p>
+  <ul><li>Item A</li><li>Item B</li><li>Item C</li></ul>
+</body>
+</html>

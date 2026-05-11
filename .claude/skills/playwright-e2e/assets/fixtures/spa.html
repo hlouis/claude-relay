@@ -1,0 +1,20 @@
+<!-- SPA-style fixture: relies on JS to render content. With sandbox=""
+     scripts are blocked, so the "JS did NOT run" fallback should remain
+     visible — this is the expected behavior to assert. -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>SPA-like</title>
+  <style>body { font-family: sans-serif; padding: 2rem; } .ok { color: green; } .ko { color: crimson; }</style>
+</head>
+<body>
+  <h1>SPA-style page</h1>
+  <p>Status: <span class="ko">JS did NOT run</span></p>
+  <div id="root">Loading...</div>
+  <script>
+    document.querySelector('p').innerHTML = 'Status: <span class="ok">JS DID run</span>';
+    document.getElementById('root').textContent = 'Rendered by JS at ' + new Date().toISOString();
+  </script>
+</body>
+</html>

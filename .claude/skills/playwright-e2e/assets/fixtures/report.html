@@ -1,0 +1,30 @@
+<!-- Inline-styled report fixture: realistic shape of a generated report
+     output. Tests that inline <style> works under CSP `style-src 'self'
+     'unsafe-inline'`. -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Inline report</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui; padding: 2rem; background: #fafafa; }
+    .card { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.05); }
+    h2 { margin-top: 0; color: #4a4a8a; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #eee; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Inline-styled report</h2>
+    <table>
+      <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>Requests</td><td>1,024</td></tr>
+        <tr><td>Errors</td><td>3</td></tr>
+        <tr><td>Avg latency</td><td>42 ms</td></tr>
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>

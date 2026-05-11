@@ -1,0 +1,14 @@
+<!-- Attack fixture: contains a script that tries to alert and exfiltrate
+     document.cookie via postMessage. Must NOT pop an alert or reach the
+     parent under direct navigation to /api/file-preview/evil.html.
+     The CSP `sandbox` directive enforces this even outside an iframe. -->
+<!doctype html>
+<html><body>
+<h1>Should NOT pop alert</h1>
+<script>
+  try {
+    document.body.innerHTML += '<p style="color:red">XSS: ' + location.origin + '</p>';
+    parent.postMessage({ stolen: document.cookie }, '*');
+  } catch (e) {}
+</script>
+</body></html>

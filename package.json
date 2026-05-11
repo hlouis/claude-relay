@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "node bin/cli.js --dev",
+    "dev:isolated": "node scripts/dev-isolated-daemon.js",
     "test": "npm run test:daemon && npm run test:client",
     "test:daemon": "node --test test/*.test.js",
     "test:client": "node --test test/*.test.mjs",
