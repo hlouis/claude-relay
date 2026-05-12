@@ -451,6 +451,84 @@
     flex-shrink: 0;
   }
 
+  /* --- Worktree chips: visual grouping with parent --- */
+  .mobile-chat-chip-wt {
+    padding: 6px 10px;
+    gap: 4px;
+    background: rgba(var(--overlay-rgb), 0.025);
+    color: var(--text-muted, var(--text-secondary));
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  /* Tight gap between parent and its first worktree, and between adjacent worktrees */
+  .mobile-chat-chip[data-has-wt] + .mobile-chat-chip-wt,
+  .mobile-chat-chip-wt + .mobile-chat-chip-wt {
+    margin-left: -4px;
+  }
+
+  /* Branch icon on worktree chip */
+  .mobile-chat-chip-wt-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .mobile-chat-chip-wt-icon svg,
+  .mobile-chat-chip-wt-icon i[data-lucide] {
+    width: 13px;
+    height: 13px;
+  }
+
+  .mobile-chat-chip-wt.active {
+    background: var(--accent-8, rgba(var(--overlay-rgb), 0.12));
+    border-color: var(--accent, currentColor);
+    color: var(--accent, var(--text));
+    font-weight: 600;
+  }
+  .mobile-chat-chip-wt.active .mobile-chat-chip-wt-icon {
+    color: var(--accent, currentColor);
+  }
+
+  /* Worktree toggle (chevron + count) on parent chip */
+  .mobile-chat-chip-wt-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 4px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: rgba(var(--overlay-rgb), 0.08);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .mobile-chat-chip-wt-toggle svg,
+  .mobile-chat-chip-wt-toggle i[data-lucide] {
+    width: 11px;
+    height: 11px;
+  }
+  .mobile-chat-chip-wt-toggle i[data-lucide="chevron-down"],
+  .mobile-chat-chip-wt-toggle svg.lucide-chevron-down {
+    transition: transform 0.15s ease;
+  }
+  .mobile-chat-chip-wt-toggle.collapsed i[data-lucide="chevron-down"],
+  .mobile-chat-chip-wt-toggle.collapsed svg.lucide-chevron-down {
+    transform: rotate(-90deg);
+  }
+  .mobile-chat-chip.active .mobile-chat-chip-wt-toggle {
+    background: rgba(255, 255, 255, 0.18);
+    color: inherit;
+  }
+
+  /* Hide collapsed worktrees */
+  .mobile-chat-chip-wt.wt-hidden {
+    display: none;
+  }
+
   .mobile-chat-session-list {
     flex: 1;
     overflow-y: auto;
