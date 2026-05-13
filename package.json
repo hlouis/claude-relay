@@ -1,6 +1,6 @@
 {
   "name": "@hlouis/clay",
-  "version": "2.38.0-beta.6",
+  "version": "3.0.0",
   "description": "Self-hosted team workspace for Claude Code and Codex. Multi-user, browser-based, with persistent AI mates.",
   "bin": {
     "clay": "./bin/cli.js",
